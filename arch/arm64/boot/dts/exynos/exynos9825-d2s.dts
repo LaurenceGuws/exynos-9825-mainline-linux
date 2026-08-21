@@ -1,0 +1,233 @@
+// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+/*
+ * Samsung Galaxy Note 10+ (d2s/SM-N975F) device tree source
+ */
+
+/dts-v1/;
+#include "exynos9825.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	model = "Samsung Galaxy Note 10+ (SM-N975F)";
+	compatible = "samsung,d2s", "samsung,exynos9825";
+	chassis-type = "handset";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs = "earlycon=exynos4210,0x10440000 console=ttySAC0,115200 console=tty0 init=/init scsi_mod.max_luns=1 pmos_root=/dev/sda32 log_buf_len=4M";
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x3ab00000>;
+	};
+
+	memory@c0000000 {
+		device_type = "memory";
+		reg = <0x0 0xc0000000 0x20000000>;
+	};
+
+	memory@e1900000 {
+		device_type = "memory";
+		reg = <0x0 0xe1900000 0x1e700000>;
+	};
+
+	memory@880000000 {
+		device_type = "memory";
+		reg = <0x8 0x80000000 0x80000000>;
+	};
+
+	memory@900000000 {
+		device_type = "memory";
+		reg = <0x9 0x0 0x80000000>;
+	};
+
+	memory@980000000 {
+		device_type = "memory";
+		reg = <0x9 0x80000000 0x80000000>;
+	};
+
+	memory@a00000000 {
+		device_type = "memory";
+		reg = <0xa 0x0 0x80000000>;
+	};
+
+	memory@a80000000 {
+		device_type = "memory";
+		reg = <0xa 0x80000000 0x80000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <1>;
+		ranges;
+
+		framebuffer@ca000000 {
+			compatible = "shared-dma-pool";
+			reg = <0x0 0xca000000 0x2000000>;
+			no-map;
+		};
+
+		/*
+		 * Reuse the vendor debug-snapshot "log_kernel" area
+		 * (0xfd900000..0xfdb10000) for mainline ramoops/pstore:
+		 * the bootloader preserves this region across resets and
+		 * only the vendor kernel's dss driver writes here (absent
+		 * in mainline).  Captures panics (e.g. GPU-on crashes)
+		 * so the next boot can read them via /sys/fs/pstore.
+		 */
+		ramoops@fd910000 {
+			compatible = "ramoops";
+			reg = <0x0 0xfd910000 0x200000>;
+			record-size = <0x10000>;
+			console-size = <0x100000>;
+			ftrace-size = <0x40000>;
+			pmsg-size = <0x40000>;
+			no-map;
+		};
+	};
+
+	usb_vdd33: regulator-usb-vdd33 {
+		compatible = "regulator-fixed";
+		regulator-name = "vdd33";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+	};
+
+	usb_vdd10: regulator-usb-vdd10 {
+		compatible = "regulator-fixed";
+		regulator-name = "vdd10";
+		regulator-min-microvolt = <1000000>;
+		regulator-max-microvolt = <1000000>;
+	};
+
+	framebuffer: framebuffer@ca000000 {
+		compatible = "simple-framebuffer";
+		reg = <0x0 0xca000000 0x10b3000>;
+		width = <1440>;
+		height = <3040>;
+		stride = <(1440 * 4)>;
+		format = "a8r8g8b8";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		pinctrl-0 = <&key_power &key_voldown &key_volup>;
+		pinctrl-names = "default";
+
+		power-key {
+			label = "Power";
+			linux,code = <KEY_POWER>;
+			gpios = <&gpa2 4 GPIO_ACTIVE_LOW>;
+			wakeup-source;
+		};
+
+		voldown-key {
+			label = "Volume Down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpios = <&gpa0 4 GPIO_ACTIVE_LOW>;
+		};
+
+		volup-key {
+			label = "Volume Up";
+			linux,code = <KEY_VOLUMEUP>;
+			gpios = <&gpa0 3 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	/*
+	 * MAX77705 MUIC on the USI_CMGP03 pins (gpm12/gpm13). The mainline
+	 * exynos9820 clock driver does not provide the USI_CMGP3 clocks, so
+	 * bit-bang the bus with i2c-gpio instead. The MUIC routes USB D+/D-
+	 * to the AP PHY only when its CTRL1 switch is set to COM_USB; the
+	 * bootloader leaves it open.
+	 */
+	i2c_muic: i2c-muic {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpm13 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpm12 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <5>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&muic_i2c_pins>;
+
+		max77705_muic: max77705@25 {
+			compatible = "maxim,max77705-muic";
+			reg = <0x25>;
+		};
+	};
+};
+
+&oscclk {
+	clock-frequency = <26000000>;
+};
+
+&serial_0 {
+	status = "okay";
+};
+
+&ufs_0_phy {
+	status = "okay";
+};
+
+&ufs_0 {
+	status = "okay";
+};
+
+&usbdrd_phy {
+	status = "okay";
+};
+
+&usbdrd {
+	status = "okay";
+};
+
+&pinctrl_alive {
+	key_power: key-power-pins {
+		samsung,pins = "gpa2-4";
+		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
+		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
+		samsung,pin-drv = <EXYNOS5420_PIN_DRV_LV1>;
+	};
+
+	key_voldown: key-voldown-pins {
+		samsung,pins = "gpa0-4";
+		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
+		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
+		samsung,pin-drv = <EXYNOS5420_PIN_DRV_LV1>;
+	};
+
+	key_volup: key-volup-pins {
+		samsung,pins = "gpa0-3";
+		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
+		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
+		samsung,pin-drv = <EXYNOS5420_PIN_DRV_LV1>;
+	};
+};
+
+&pinctrl_cmgp {
+	muic_i2c_pins: muic-i2c-pins {
+		samsung,pins = "gpm12-0", "gpm13-0";
+		samsung,pin-function = <EXYNOS_PIN_FUNC_INPUT>;
+		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
+		samsung,pin-drv = <EXYNOS5420_PIN_DRV_LV1>;
+	};
+
+};
+
+&hsi2c_10 {
+	status = "okay";
+
+	touchscreen@48 {
+		compatible = "sec,sec_ts";
+		reg = <0x48>;
+		interrupt-parent = <&gpa1>;
+		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
+		touchscreen-size-x = <4096>;
+		touchscreen-size-y = <4096>;
+	};
+};

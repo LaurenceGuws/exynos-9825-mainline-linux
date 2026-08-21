@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/samsung,exynos9820-g3d-pd.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Samsung Exynos9820 and Exynos9825 G3D power domain
+
+maintainers:
+  - Linux Samsung SoC <linux-samsung-soc@vger.kernel.org>
+
+allOf:
+  - $ref: power-domain.yaml#
+
+properties:
+  compatible:
+    const: samsung,exynos9820-g3d-pd
+
+  reg:
+    maxItems: 1
+
+  '#power-domain-cells':
+    const: 0
+
+  label:
+    $ref: /schemas/types.yaml#/definitions/string
+
+  samsung,pmu-syscon:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: Phandle to the PMU system controller.
+
+required:
+  - compatible
+  - reg
+  - '#power-domain-cells'
+  - samsung,pmu-syscon
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    power-domain@18400000 {
+        compatible = "samsung,exynos9820-g3d-pd";
+        reg = <0x18400000 0x8000>;
+        #power-domain-cells = <0>;
+        samsung,pmu-syscon = <&pmu_system_controller>;
+    };
+...
