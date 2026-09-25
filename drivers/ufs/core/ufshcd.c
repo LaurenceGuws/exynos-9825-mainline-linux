@@ -632,10 +632,13 @@ static void ufshcd_print_tr(struct ufs_hba *hba, struct scsi_cmnd *cmd,
 	prdt_length = le16_to_cpu(
 		lrbp->utr_descriptor_ptr->prd_table_length);
 	if (hba->quirks & UFSHCD_QUIRK_PRDT_BYTE_GRAN) {
-		if (prdt_length &&
-		    hba->quirks & UFSHCD_QUIRK_PRDT_LEN_INCLUDES_HEADER)
-			prdt_length -= sizeof(struct ufshcd_sg_entry);
-		prdt_length /= ufshcd_sg_entry_size(hba);
+		if (hba->quirks & UFSHCD_QUIRK_PRDT_LEN_INCLUDES_HEADER) {
+			if (prdt_length)
+				prdt_length -= sizeof(struct ufshcd_sg_entry);
+			prdt_length /= sizeof(struct ufshcd_sg_entry);
+		} else {
+			prdt_length /= ufshcd_sg_entry_size(hba);
+		}
 	}
 
 	dev_err(hba->dev,
@@ -2724,8 +2727,13 @@ static void ufshcd_sgl_to_prdt(struct ufs_hba *hba, struct ufshcd_lrb *lrbp, int
 	if (sg_entries) {
 
 		if (hba->quirks & UFSHCD_QUIRK_PRDT_BYTE_GRAN) {
-			size_t prdt_length = sg_entries * ufshcd_sg_entry_size(hba);
+			size_t prdt_entry_size = ufshcd_sg_entry_size(hba);
+			size_t prdt_length;
 
+			if (hba->quirks & UFSHCD_QUIRK_PRDT_LEN_INCLUDES_HEADER)
+				prdt_entry_size = sizeof(struct ufshcd_sg_entry);
+
+			prdt_length = sg_entries * prdt_entry_size;
 			if (hba->quirks & UFSHCD_QUIRK_PRDT_LEN_INCLUDES_HEADER)
 				prdt_length += sizeof(struct ufshcd_sg_entry);
 			lrbp->utr_descriptor_ptr->prd_table_length =

@@ -2846,8 +2846,8 @@ static const struct exynos_ufs_drv_data exynos9820_ufs_drvs = {
 	 * d2s bring-up quirk catalog (exynos9825, SM-N975F).  Each entry
 	 * masks a failure mode observed with this UFS PHY/HCI:
 	 *  - PRDT_BYTE_GRAN:          PRDT size field is in bytes, not 32B units
-	 *  - PRDT_LEN_INCLUDES_HEADER: Exynos9820 requires an extra 16 bytes in
-	 *                              the byte-granular PRDT length
+	 *  - PRDT_LEN_INCLUDES_HEADER: Exynos9820 encodes PRDT length as
+	 *                              16 bytes per SG plus an extra 16 bytes
 	 *  - SKIP_RESET_INTR_AGGR:    controller rejects SW reset of the
 	 *                             interrupt aggregation timer/counter
 	 *  - BROKEN_REQ_LIST_CLR:     transfer/task request list clear bit

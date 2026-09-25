@@ -727,8 +727,9 @@ enum ufshcd_quirks {
 
 	/*
 	 * This quirk needs to be enabled if the host controller expects the
-	 * byte-granular PRDT length to include one standard 16-byte PRD entry
-	 * in addition to the actual table size.
+	 * byte-granular PRDT length to be based on standard 16-byte PRD entries
+	 * and include one additional standard PRD entry, even when the driver
+	 * uses a larger variant-specific PRD stride.
 	 */
 	UFSHCD_QUIRK_PRDT_LEN_INCLUDES_HEADER		= 1 << 14,
 
