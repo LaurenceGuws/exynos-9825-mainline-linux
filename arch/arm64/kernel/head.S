@@ -125,6 +125,7 @@ SYM_CODE_START(primary_entry)
 	 * deliberately hold before early_init_stack/idmap setup. Preserve x19/x21.
 	 */
 	movz	x9, #0xca32, lsl #16		// framebuffer row 576
+	movk	x9, #0xa000
 	mov	x10, x9
 	movz	x11, #0xffff
 	movk	x11, #0xff00, lsl #16
@@ -140,6 +141,7 @@ SYM_CODE_START(primary_entry)
 
 	raw_dcache_line_size x13, x14
 	movz	x10, #0xca32, lsl #16
+	movk	x10, #0xa000
 	sub	x14, x13, #1
 	bic	x10, x10, x14
 .Lnote10_post_preserve_clean:
