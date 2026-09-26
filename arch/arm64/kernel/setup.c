@@ -314,6 +314,48 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	local_daif_restore(DAIF_PROCCTX_NOIRQ);
 
 	/*
+	 * Note10 bring-up diagnostic: all safe setup_arch work completed before
+	 * cpu_uninstall_idmap. Paint rows 672..703 pure blue and hold before any
+	 * TTBR0 teardown preparation is allowed to execute.
+	 */
+	asm volatile("movz x9, #0xca3b, lsl #16\n\t"
+		"movk x9, #0x1000\n\t"
+		"mov x10, x9\n\t"
+		"movz x11, #0x00ff\n\t"
+		"movk x11, #0xff00, lsl #16\n\t"
+		"movk x11, #0x00ff, lsl #32\n\t"
+		"movk x11, #0xff00, lsl #48\n\t"
+		"movz x12, #0x0002, lsl #16\n\t"
+		"movk x12, #0xd000\n\t"
+		"add x12, x9, x12\n\t"
+		"1:\n\t"
+		"stp x11, x11, [x10], #16\n\t"
+		"cmp x10, x12\n\t"
+		"b.lo 1b\n\t"
+		"mrs x14, CTR_EL0\n\t"
+		"ubfx x14, x14, #16, #4\n\t"
+		"mov x13, #4\n\t"
+		"lsl x13, x13, x14\n\t"
+		"movz x10, #0xca3b, lsl #16\n\t"
+		"movk x10, #0x1000\n\t"
+		"sub x14, x13, #1\n\t"
+		"bic x10, x10, x14\n\t"
+		"2:\n\t"
+		"dc cvac, x10\n\t"
+		"add x10, x10, x13\n\t"
+		"cmp x10, x12\n\t"
+		"b.lo 2b\n\t"
+		"dsb sy\n\t"
+		"isb\n\t"
+		"3:\n\t"
+		"wfe\n\t"
+		"b 3b\n\t"
+		:
+		:
+		: "x0", "x1", "x8", "x9", "x10", "x11", "x12", "x13",
+		  "x14", "cc", "memory");
+
+	/*
 	 * TTBR0 is only used for the identity mapping at this stage. Make it
 	 * point to zero page to avoid speculatively fetching new entries.
 	 */

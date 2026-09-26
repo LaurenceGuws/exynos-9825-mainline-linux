@@ -1034,8 +1034,8 @@ void start_kernel(void)
 #ifdef CONFIG_ARM64
 	/*
 	 * Note10 bring-up diagnostic: the first ordinary start_kernel cluster
-	 * completed. Paint rows 672..703 pure green and hold before banner
-	 * printing or setup_arch.
+	 * completed. Paint rows 672..703 pure green, then continue into banner
+	 * printing and setup_arch.
 	 */
 	asm volatile("movz x9, #0xca3b, lsl #16\n\t"
 		"movk x9, #0x1000\n\t"
@@ -1066,9 +1066,6 @@ void start_kernel(void)
 		"b.lo 2b\n\t"
 		"dsb sy\n\t"
 		"isb\n\t"
-		"3:\n\t"
-		"wfe\n\t"
-		"b 3b\n\t"
 		:
 		:
 		: "x0", "x1", "x9", "x10", "x11", "x12", "x13", "x14",
