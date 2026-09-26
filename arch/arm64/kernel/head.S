@@ -87,7 +87,8 @@ SYM_CODE_START(primary_entry)
 	 * Note10 bring-up diagnostic: prove the first primary_entry instruction
 	 * stream executes before relying on any normal console or kernel state.
 	 * Paint framebuffer rows 512..639 magenta, clean the written range to
-	 * PoC, then intentionally hold.  x0 (the FDT pointer) is left untouched.
+	 * PoC, then continue into the original early entry sequence. x0 (the FDT
+	 * pointer) is left untouched.
 	 */
 	movz	x9, #0xca2d, lsl #16		// framebuffer row 512
 	mov	x10, x9
@@ -114,12 +115,43 @@ SYM_CODE_START(primary_entry)
 	b.lo	.Lnote10_marker_clean
 	dsb	sy
 	isb
-.Lnote10_marker_hold:
-	wfe
-	b	.Lnote10_marker_hold
 
 	bl	record_mmu_state
 	bl	preserve_boot_args
+
+	/*
+	 * Second diagnostic boundary: record_mmu_state and preserve_boot_args
+	 * returned. Overwrite only rows 576..639 cyan, clean them to PoC, then
+	 * deliberately hold before early_init_stack/idmap setup. Preserve x19/x21.
+	 */
+	movz	x9, #0xca32, lsl #16		// framebuffer row 576
+	mov	x10, x9
+	movz	x11, #0xffff
+	movk	x11, #0xff00, lsl #16
+	movk	x11, #0xffff, lsl #32
+	movk	x11, #0xff00, lsl #48		// two ARGB8888 cyan pixels
+	movz	x12, #0x0005, lsl #16
+	movk	x12, #0xa000			// 1440 * 4 * 64 bytes
+	add	x12, x9, x12
+.Lnote10_post_preserve_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_preserve_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca32, lsl #16
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_preserve_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_preserve_clean
+	dsb	sy
+	isb
+.Lnote10_post_preserve_hold:
+	wfe
+	b	.Lnote10_post_preserve_hold
 
 	adrp	x1, early_init_stack
 	mov	sp, x1
