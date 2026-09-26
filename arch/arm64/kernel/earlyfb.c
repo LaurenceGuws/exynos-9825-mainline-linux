@@ -12,6 +12,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/font.h>
 #include <linux/timer.h>
@@ -247,9 +248,6 @@ void __init earlyfb_console_init(void)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
-			"2:\n\t"
-			"wfe\n\t"
-			"b 2b\n\t"
 			:
 			: "r" (bridge_reg)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
@@ -257,6 +255,9 @@ void __init earlyfb_console_init(void)
 	}
 
 	if (earlyfb_map)
+		return;
+
+	if (!slab_is_available())
 		return;
 
 	earlyfb_map = ioremap_wc(EARLYFB_PHYS, EARLYFB_SIZE);
