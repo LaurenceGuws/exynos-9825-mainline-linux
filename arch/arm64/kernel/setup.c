@@ -38,6 +38,7 @@
 #include <asm/cpu.h>
 #include <asm/cputype.h>
 #include <asm/daifflags.h>
+#include <asm/early_ioremap.h>
 #include <asm/elf.h>
 #include <asm/cpufeature.h>
 #include <asm/cpu_ops.h>
@@ -280,6 +281,8 @@ u64 cpu_logical_map(unsigned int cpu)
 
 void __init __no_sanitize_address setup_arch(char **cmdline_p)
 {
+	void *bridge;
+
 	setup_initial_init_mm(_text, _etext, _edata, _end);
 
 	*cmdline_p = boot_command_line;
@@ -315,8 +318,8 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 
 	/*
 	 * Note10 bring-up diagnostic: all safe setup_arch work completed before
-	 * cpu_uninstall_idmap. Paint rows 672..703 pure blue and hold before any
-	 * TTBR0 teardown preparation is allowed to execute.
+	 * cpu_uninstall_idmap. Paint rows 672..703 pure blue, then establish a
+	 * matching-attribute TTBR1 framebuffer bridge before any TTBR0 teardown.
 	 */
 	asm volatile("movz x9, #0xca3b, lsl #16\n\t"
 		"movk x9, #0x1000\n\t"
@@ -347,12 +350,46 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 		"b.lo 2b\n\t"
 		"dsb sy\n\t"
 		"isb\n\t"
-		"3:\n\t"
-		"wfe\n\t"
-		"b 3b\n\t"
 		:
 		:
 		: "x0", "x1", "x8", "x9", "x10", "x11", "x12", "x13",
+		  "x14", "cc", "memory");
+
+	bridge = early_memremap_prot(0xca3b1000, 0x2d000, PROT_NORMAL_NC);
+	if (!bridge)
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+	register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+	/*
+	 * The matching Normal-NC TTBR1 bridge is live. Repaint the same band
+	 * pure yellow through the returned high VA and hold, leaving both the
+	 * mapping and cpu_uninstall_idmap untouched for physical proof.
+	 */
+	asm volatile("mov x10, %0\n\t"
+		"movz x11, #0xff00\n\t"
+		"movk x11, #0xffff, lsl #16\n\t"
+		"movk x11, #0xff00, lsl #32\n\t"
+		"movk x11, #0xffff, lsl #48\n\t"
+		"movz x12, #0x0002, lsl #16\n\t"
+		"movk x12, #0xd000\n\t"
+		"add x12, x10, x12\n\t"
+		"1:\n\t"
+		"str x11, [x10], #8\n\t"
+		"cmp x10, x12\n\t"
+		"b.lo 1b\n\t"
+		"dsb sy\n\t"
+		"2:\n\t"
+		"wfe\n\t"
+		"b 2b\n\t"
+		:
+		: "r" (bridge_reg)
+		: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
 		  "x14", "cc", "memory");
 
 	/*
