@@ -462,8 +462,7 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 
 	/*
 	 * Note10 bring-up diagnostic: arm64_memblock_init returned. Repaint the
-	 * same proven TTBR1 bridge pure cyan and hold immediately before
-	 * paging_init.
+	 * same proven TTBR1 bridge pure cyan before crossing paging_init.
 	 */
 	{
 		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
@@ -481,15 +480,13 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
-			"2:\n\t"
-			"wfe\n\t"
-			"b 2b\n\t"
 			:
 			: "r" (bridge_reg)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
 			  "x14", "cc", "memory");
 	}
 
+	WRITE_ONCE(note10_paging_bridge, bridge);
 	paging_init();
 
 	earlyfb_console_init();
