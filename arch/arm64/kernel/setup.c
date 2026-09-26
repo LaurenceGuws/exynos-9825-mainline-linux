@@ -399,7 +399,7 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 
 	/*
 	 * Note10 bring-up diagnostic: TTBR0 teardown returned. Repaint the
-	 * proven TTBR1 bridge pure red and hold before xen_early_init.
+	 * proven TTBR1 bridge pure red before crossing xen_early_init.
 	 */
 	{
 		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
@@ -415,9 +415,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
-			"2:\n\t"
-			"wfe\n\t"
-			"b 2b\n\t"
 			:
 			: "r" (bridge_reg)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
@@ -432,6 +429,36 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			pr_warn(FW_BUG "Kernel image misaligned at boot, please fix your bootloader!");
 		WARN_TAINT(mmu_enabled_at_boot, TAINT_FIRMWARE_WORKAROUND,
 			   FW_BUG "Booted with MMU enabled!");
+	}
+
+	/*
+	 * Xen, EFI and the runtime-selected EFI warning/taint continuation
+	 * returned. Repaint the same proven TTBR1 bridge violet and hold before
+	 * arm64_memblock_init.
+	 */
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x00ff\n\t"
+			"movk x11, #0xff80, lsl #16\n\t"
+			"movk x11, #0x00ff, lsl #32\n\t"
+			"movk x11, #0xff80, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
 	}
 
 	arm64_memblock_init();
