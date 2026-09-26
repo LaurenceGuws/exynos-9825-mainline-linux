@@ -979,7 +979,7 @@ void start_kernel(void)
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
 	 * the compiler-generated arm64/SCS prologue, before any ordinary
 	 * start_kernel source operation. Reuse the accepted transient TTBR0
-	 * framebuffer mapping and hold immediately after the visible marker.
+	 * framebuffer mapping, then continue into the ordinary init cluster.
 	 */
 	asm volatile("movz x9, #0xca3b, lsl #16\n\t"
 		"movk x9, #0x1000\n\t"
@@ -1010,9 +1010,6 @@ void start_kernel(void)
 		"b.lo 2b\n\t"
 		"dsb sy\n\t"
 		"isb\n\t"
-		"3:\n\t"
-		"wfe\n\t"
-		"b 3b\n\t"
 		:
 		:
 		: "x0", "x9", "x10", "x11", "x12", "x13", "x14", "cc", "memory");
@@ -1033,6 +1030,51 @@ void start_kernel(void)
 	 * enable them.
 	 */
 	boot_cpu_init();
+
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic: the first ordinary start_kernel cluster
+	 * completed. Paint rows 672..703 pure green and hold before banner
+	 * printing or setup_arch.
+	 */
+	asm volatile("movz x9, #0xca3b, lsl #16\n\t"
+		"movk x9, #0x1000\n\t"
+		"mov x10, x9\n\t"
+		"movz x11, #0xff00\n\t"
+		"movk x11, #0xff00, lsl #16\n\t"
+		"movk x11, #0xff00, lsl #32\n\t"
+		"movk x11, #0xff00, lsl #48\n\t"
+		"movz x12, #0x0002, lsl #16\n\t"
+		"movk x12, #0xd000\n\t"
+		"add x12, x9, x12\n\t"
+		"1:\n\t"
+		"stp x11, x11, [x10], #16\n\t"
+		"cmp x10, x12\n\t"
+		"b.lo 1b\n\t"
+		"mrs x14, CTR_EL0\n\t"
+		"ubfx x14, x14, #16, #4\n\t"
+		"mov x13, #4\n\t"
+		"lsl x13, x13, x14\n\t"
+		"movz x10, #0xca3b, lsl #16\n\t"
+		"movk x10, #0x1000\n\t"
+		"sub x14, x13, #1\n\t"
+		"bic x10, x10, x14\n\t"
+		"2:\n\t"
+		"dc cvac, x10\n\t"
+		"add x10, x10, x13\n\t"
+		"cmp x10, x12\n\t"
+		"b.lo 2b\n\t"
+		"dsb sy\n\t"
+		"isb\n\t"
+		"3:\n\t"
+		"wfe\n\t"
+		"b 3b\n\t"
+		:
+		:
+		: "x0", "x1", "x9", "x10", "x11", "x12", "x13", "x14",
+		  "cc", "memory");
+#endif
+
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
