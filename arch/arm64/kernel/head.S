@@ -444,15 +444,78 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 	b.lo	.Lnote10_primary_switched_clean
 	dsb	sy
 	isb
-.Lnote10_primary_switched_hold:
-	wfe
-	b	.Lnote10_primary_switched_hold
 
 	adr_l	x4, init_task
 	init_cpu_task x4, x5, x6
 
+	/*
+	 * Seventh diagnostic boundary, stage A: init_cpu_task completed and
+	 * the real init-task stack/SCS/per-CPU state is live. Paint rows
+	 * 672..703 amber before vector installation.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0xa000
+	movk	x11, #0xffff, lsl #16
+	movk	x11, #0xa000, lsl #32
+	movk	x11, #0xffff, lsl #48		// two ARGB8888 amber pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_post_init_task_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_init_task_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_init_task_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_init_task_clean
+	dsb	sy
+	isb
+
 	adr_l	x8, vectors			// load VBAR_EL1 with virtual
 	msr	vbar_el1, x8			// vector table address
+	isb
+
+	/*
+	 * Seventh diagnostic boundary, stage B: VBAR_EL1 installation
+	 * completed. Overwrite rows 672..703 blue before the frame push and
+	 * FDT/kimage publication work.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0x80ff
+	movk	x11, #0xff00, lsl #16
+	movk	x11, #0x80ff, lsl #32
+	movk	x11, #0xff00, lsl #48		// two ARGB8888 blue pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_post_vbar_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_vbar_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_vbar_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_vbar_clean
+	dsb	sy
 	isb
 
 	stp	x29, x30, [sp, #-16]!
@@ -473,6 +536,40 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 	mov	x0, x20
 	bl	finalise_el2			// Prefer VHE if possible
 	ldp	x29, x30, [sp], #16
+
+	/*
+	 * Seventh diagnostic boundary, stage C: every pre-start_kernel state
+	 * operation completed and the original frame was restored. Paint rows
+	 * 672..703 white and deliberately hold before start_kernel.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	mov	x11, #-1				// two ARGB8888 white pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_pre_start_kernel_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_pre_start_kernel_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_pre_start_kernel_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_pre_start_kernel_clean
+	dsb	sy
+	isb
+.Lnote10_pre_start_kernel_hold:
+	wfe
+	b	.Lnote10_pre_start_kernel_hold
+
 	bl	start_kernel
 	ASM_BUG()
 SYM_FUNC_END(__primary_switched)
