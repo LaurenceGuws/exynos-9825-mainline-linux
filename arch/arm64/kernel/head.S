@@ -412,6 +412,42 @@ SYM_CODE_END(preserve_boot_args)
  *   x0 = __pa(KERNEL_START)
  */
 SYM_FUNC_START_LOCAL(__primary_switched)
+	/*
+	 * Sixth diagnostic boundary, stage 2: the final virtual branch landed
+	 * at __primary_switched. Paint rows 672..703 lime and deliberately
+	 * hold before task/VBAR/FDT/kimage state is touched.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0xff00
+	movk	x11, #0xff80, lsl #16
+	movk	x11, #0xff00, lsl #32
+	movk	x11, #0xff80, lsl #48		// two ARGB8888 lime pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_primary_switched_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_primary_switched_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_primary_switched_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_primary_switched_clean
+	dsb	sy
+	isb
+.Lnote10_primary_switched_hold:
+	wfe
+	b	.Lnote10_primary_switched_hold
+
 	adr_l	x4, init_task
 	init_cpu_task x4, x5, x6
 
@@ -831,16 +867,80 @@ SYM_FUNC_START_LOCAL(__primary_switch)
 	b.lo	.Lnote10_post_enable_return_clean
 	dsb	sy
 	isb
-.Lnote10_post_enable_return_hold:
-	wfe
-	b	.Lnote10_post_enable_return_hold
 
 	adrp	x1, early_init_stack
 	mov	sp, x1
 	mov	x29, xzr
 	mov	x0, x20				// pass the full boot status
 	mov	x1, x21				// pass the FDT
+
+	/*
+	 * Sixth diagnostic boundary, stage 0: the early stack and call
+	 * arguments are ready. Paint rows 672..703 violet immediately before
+	 * __pi_early_map_kernel.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0x00ff
+	movk	x11, #0xff80, lsl #16
+	movk	x11, #0x00ff, lsl #32
+	movk	x11, #0xff80, lsl #48		// two ARGB8888 violet pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_pre_early_map_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_pre_early_map_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_pre_early_map_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_pre_early_map_clean
+	dsb	sy
+	isb
+
 	bl	__pi_early_map_kernel		// Map and relocate the kernel
+
+	/*
+	 * Sixth diagnostic boundary, stage 1: __pi_early_map_kernel returned.
+	 * Overwrite rows 672..703 cyan immediately before the final virtual
+	 * branch setup.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0xffff
+	movk	x11, #0xff00, lsl #16
+	movk	x11, #0xffff, lsl #32
+	movk	x11, #0xff00, lsl #48		// two ARGB8888 cyan pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_post_early_map_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_early_map_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_early_map_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_early_map_clean
+	dsb	sy
+	isb
 
 	ldr	x8, =__primary_switched
 	adrp	x0, KERNEL_START		// __pa(KERNEL_START)
