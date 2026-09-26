@@ -489,36 +489,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	WRITE_ONCE(note10_paging_bridge, bridge);
 	paging_init();
 
-	/*
-	 * Note10 bring-up diagnostic: paging_init returned normally. Repaint the
-	 * surviving ordinary setup_arch bridge spring green and hold immediately
-	 * before earlyfb_console_init().
-	 */
-	{
-		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
-
-		asm volatile("mov x10, %0\n\t"
-			"movz x11, #0xff80\n\t"
-			"movk x11, #0xff00, lsl #16\n\t"
-			"movk x11, #0xff80, lsl #32\n\t"
-			"movk x11, #0xff00, lsl #48\n\t"
-			"movz x12, #0x0002, lsl #16\n\t"
-			"movk x12, #0xd000\n\t"
-			"add x12, x10, x12\n\t"
-			"1:\n\t"
-			"str x11, [x10], #8\n\t"
-			"cmp x10, x12\n\t"
-			"b.lo 1b\n\t"
-			"dsb sy\n\t"
-			"2:\n\t"
-			"wfe\n\t"
-			"b 2b\n\t"
-			:
-			: "r" (bridge_reg)
-			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
-			  "x14", "cc", "memory");
-	}
-
 	earlyfb_console_init();
 
 	acpi_table_upgrade();

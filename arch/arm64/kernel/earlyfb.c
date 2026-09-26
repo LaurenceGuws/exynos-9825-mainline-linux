@@ -16,6 +16,7 @@
 #include <linux/font.h>
 #include <linux/timer.h>
 
+#include <asm/mmu.h>
 #include <asm/setup.h>
 
 #define EARLYFB_PHYS	0xca000000UL
@@ -216,10 +217,44 @@ late_initcall(d2s_wdt_late_probe);
 
 void __init earlyfb_console_init(void)
 {
+	void *bridge;
+
 	if (d2s_wdt_disable)
 		pr_info("d2s-wdt: disabled via d2s_wdt=0\n");
 	else
 		d2s_wdt_setup("early", true);
+
+	bridge = READ_ONCE(note10_paging_bridge);
+
+	/*
+	 * Note10 bring-up diagnostic: the selected early watchdog setup branch
+	 * returned. Repaint the already-proven high-TTBR1 bridge amber and hold
+	 * before inspecting or creating earlyfb_map.
+	 */
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0xa000\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0xa000, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	if (earlyfb_map)
 		return;
