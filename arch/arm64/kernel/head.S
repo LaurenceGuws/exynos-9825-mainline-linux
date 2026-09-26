@@ -83,6 +83,41 @@
 	 *  x21        primary_entry() .. start_kernel()        FDT pointer passed at boot in x0
 	 */
 SYM_CODE_START(primary_entry)
+	/*
+	 * Note10 bring-up diagnostic: prove the first primary_entry instruction
+	 * stream executes before relying on any normal console or kernel state.
+	 * Paint framebuffer rows 512..639 magenta, clean the written range to
+	 * PoC, then intentionally hold.  x0 (the FDT pointer) is left untouched.
+	 */
+	movz	x9, #0xca2d, lsl #16		// framebuffer row 512
+	mov	x10, x9
+	movz	x11, #0x00ff
+	movk	x11, #0xffff, lsl #16
+	movk	x11, #0x00ff, lsl #32
+	movk	x11, #0xffff, lsl #48		// two ARGB8888 magenta pixels
+	movz	x12, #0x000b, lsl #16
+	movk	x12, #0x4000			// 1440 * 4 * 128 bytes
+	add	x12, x9, x12
+.Lnote10_marker_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_marker_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca2d, lsl #16
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_marker_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_marker_clean
+	dsb	sy
+	isb
+.Lnote10_marker_hold:
+	wfe
+	b	.Lnote10_marker_hold
+
 	bl	record_mmu_state
 	bl	preserve_boot_args
 
