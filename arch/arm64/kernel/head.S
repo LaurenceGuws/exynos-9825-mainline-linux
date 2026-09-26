@@ -566,9 +566,6 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 	b.lo	.Lnote10_pre_start_kernel_clean
 	dsb	sy
 	isb
-.Lnote10_pre_start_kernel_hold:
-	wfe
-	b	.Lnote10_pre_start_kernel_hold
 
 	bl	start_kernel
 	ASM_BUG()
