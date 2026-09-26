@@ -236,9 +236,6 @@ SYM_CODE_START(primary_entry)
 	b.lo	.Lnote10_post_idmap_inval_clean
 	dsb	sy
 	isb
-.Lnote10_post_idmap_inval_hold:
-	wfe
-	b	.Lnote10_post_idmap_inval_hold
 	b	1f
 
 	/*
@@ -256,12 +253,77 @@ SYM_CODE_START(primary_entry)
 	mov	x20, x0
 
 	/*
+	 * Fourth diagnostic boundary, stage A: init_kernel_el returned and its
+	 * boot-mode result is preserved in x20. Paint rows 640..671 red, clean
+	 * them to PoC, then continue into the original __cpu_setup call.
+	 */
+	movz	x9, #0xca38, lsl #16		// framebuffer row 640
+	movk	x9, #0x4000
+	mov	x10, x9
+	movz	x11, #0xffff, lsl #16
+	movk	x11, #0xffff, lsl #48		// two ARGB8888 red pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000			// 1440 * 4 * 32 bytes
+	add	x12, x9, x12
+.Lnote10_post_init_el_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_init_el_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca38, lsl #16
+	movk	x10, #0x4000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_init_el_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_init_el_clean
+	dsb	sy
+	isb
+
+	/*
 	 * The following calls CPU setup code, see arch/arm64/mm/proc.S for
 	 * details.
 	 * On return, the CPU will be ready for the MMU to be turned on and
 	 * the TCR will have been set.
 	 */
 	bl	__cpu_setup			// initialise processor
+
+	/*
+	 * Fourth diagnostic boundary, stage B: __cpu_setup returned its future
+	 * SCTLR_EL1-on value in x0. Overwrite rows 640..671 white, clean them to
+	 * PoC, then deliberately hold before __primary_switch/MMU enable.
+	 */
+	movz	x9, #0xca38, lsl #16
+	movk	x9, #0x4000
+	mov	x10, x9
+	mov	x11, #-1				// two ARGB8888 white pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_post_cpu_setup_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_cpu_setup_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca38, lsl #16
+	movk	x10, #0x4000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_cpu_setup_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_cpu_setup_clean
+	dsb	sy
+	isb
+.Lnote10_post_cpu_setup_hold:
+	wfe
+	b	.Lnote10_post_cpu_setup_hold
+
 	b	__primary_switch
 SYM_CODE_END(primary_entry)
 
