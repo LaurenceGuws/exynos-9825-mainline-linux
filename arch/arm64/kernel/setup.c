@@ -364,39 +364,65 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			     :
 			     : "memory");
 
-	register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
-
 	/*
 	 * The matching Normal-NC TTBR1 bridge is live. Repaint the same band
-	 * pure yellow through the returned high VA and hold, leaving both the
-	 * mapping and cpu_uninstall_idmap untouched for physical proof.
+	 * pure yellow through the returned high VA before crossing the idmap
+	 * teardown boundary.
 	 */
-	asm volatile("mov x10, %0\n\t"
-		"movz x11, #0xff00\n\t"
-		"movk x11, #0xffff, lsl #16\n\t"
-		"movk x11, #0xff00, lsl #32\n\t"
-		"movk x11, #0xffff, lsl #48\n\t"
-		"movz x12, #0x0002, lsl #16\n\t"
-		"movk x12, #0xd000\n\t"
-		"add x12, x10, x12\n\t"
-		"1:\n\t"
-		"str x11, [x10], #8\n\t"
-		"cmp x10, x12\n\t"
-		"b.lo 1b\n\t"
-		"dsb sy\n\t"
-		"2:\n\t"
-		"wfe\n\t"
-		"b 2b\n\t"
-		:
-		: "r" (bridge_reg)
-		: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
-		  "x14", "cc", "memory");
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0xff00\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0xff00, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	/*
 	 * TTBR0 is only used for the identity mapping at this stage. Make it
 	 * point to zero page to avoid speculatively fetching new entries.
 	 */
 	cpu_uninstall_idmap();
+
+	/*
+	 * Note10 bring-up diagnostic: TTBR0 teardown returned. Repaint the
+	 * proven TTBR1 bridge pure red and hold before xen_early_init.
+	 */
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	xen_early_init();
 	efi_init();
