@@ -151,9 +151,6 @@ SYM_CODE_START(primary_entry)
 	b.lo	.Lnote10_post_preserve_clean
 	dsb	sy
 	isb
-.Lnote10_post_preserve_hold:
-	wfe
-	b	.Lnote10_post_preserve_hold
 
 	adrp	x1, early_init_stack
 	mov	sp, x1
@@ -161,6 +158,39 @@ SYM_CODE_START(primary_entry)
 	adrp	x0, __pi_init_idmap_pg_dir
 	mov	x1, xzr
 	bl	__pi_create_init_idmap
+
+	/*
+	 * Third diagnostic boundary, stage A: early stack and init-idmap creation
+	 * returned. Overwrite only rows 608..639 yellow and continue into the
+	 * original MMU-off page-table invalidation path. Preserve x0/x19/x21.
+	 */
+	movz	x9, #0xca35, lsl #16		// framebuffer row 608
+	movk	x9, #0x7000
+	mov	x10, x9
+	movz	x11, #0xff00
+	movk	x11, #0xffff, lsl #16
+	movk	x11, #0xff00, lsl #32
+	movk	x11, #0xffff, lsl #48		// two ARGB8888 yellow pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000			// 1440 * 4 * 32 bytes
+	add	x12, x9, x12
+.Lnote10_post_idmap_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_idmap_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca35, lsl #16
+	movk	x10, #0x7000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_idmap_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_idmap_clean
+	dsb	sy
+	isb
 
 	/*
 	 * If the page tables have been populated with non-cacheable
@@ -173,6 +203,42 @@ SYM_CODE_START(primary_entry)
 	adrp    x0, __pi_init_idmap_pg_dir
 	adr_l	x2, dcache_inval_poc
 	blr	x2
+
+	/*
+	 * Third diagnostic boundary, stage B: the observed MMU-off page-table
+	 * dcache_inval_poc returned. Overwrite rows 608..639 green, clean them to
+	 * PoC, then deliberately hold before the common pre-init_kernel_el label.
+	 */
+	movz	x9, #0xca35, lsl #16
+	movk	x9, #0x7000
+	mov	x10, x9
+	movz	x11, #0xff00
+	movk	x11, #0xff00, lsl #16
+	movk	x11, #0xff00, lsl #32
+	movk	x11, #0xff00, lsl #48		// two ARGB8888 green pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_post_idmap_inval_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_idmap_inval_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca35, lsl #16
+	movk	x10, #0x7000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_idmap_inval_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_idmap_inval_clean
+	dsb	sy
+	isb
+.Lnote10_post_idmap_inval_hold:
+	wfe
+	b	.Lnote10_post_idmap_inval_hold
 	b	1f
 
 	/*
