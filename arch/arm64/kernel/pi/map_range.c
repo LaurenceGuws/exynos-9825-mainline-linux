@@ -90,12 +90,15 @@ void __init map_range(phys_addr_t *pte, u64 start, u64 end, phys_addr_t pa,
 
 asmlinkage phys_addr_t __init create_init_idmap(pgd_t *pg_dir, ptval_t clrmask)
 {
+	const phys_addr_t note10_diag_fb = 0xca200000;
 	phys_addr_t ptep = (phys_addr_t)pg_dir + PAGE_SIZE; /* MMU is off */
 	pgprot_t text_prot = PAGE_KERNEL_ROX;
 	pgprot_t data_prot = PAGE_KERNEL;
+	pgprot_t fb_prot = __pgprot(PROT_NORMAL_NC);
 
 	pgprot_val(text_prot) &= ~clrmask;
 	pgprot_val(data_prot) &= ~clrmask;
+	pgprot_val(fb_prot) &= ~clrmask;
 
 	/* MMU is off; pointer casts to phys_addr_t are safe */
 	map_range(&ptep, (u64)_stext, (u64)__initdata_begin,
@@ -103,6 +106,16 @@ asmlinkage phys_addr_t __init create_init_idmap(pgd_t *pg_dir, ptval_t clrmask)
 		  (pte_t *)pg_dir, false, 0);
 	map_range(&ptep, (u64)__initdata_begin, (u64)_end,
 		  (phys_addr_t)__initdata_begin, data_prot, IDMAP_ROOT_LEVEL,
+		  (pte_t *)pg_dir, false, 0);
+
+	/*
+	 * Note10 bring-up diagnostic only: keep one framebuffer PMD block
+	 * identity-mapped across the first MMU enable so the existing visible
+	 * breadcrumb can prove the transition without changing the DT no-map
+	 * contract or the normal kernel mappings.
+	 */
+	map_range(&ptep, note10_diag_fb, note10_diag_fb + SZ_2M,
+		  note10_diag_fb, fb_prot, IDMAP_ROOT_LEVEL,
 		  (pte_t *)pg_dir, false, 0);
 
 	return ptep;

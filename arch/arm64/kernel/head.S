@@ -320,9 +320,6 @@ SYM_CODE_START(primary_entry)
 	b.lo	.Lnote10_post_cpu_setup_clean
 	dsb	sy
 	isb
-.Lnote10_post_cpu_setup_hold:
-	wfe
-	b	.Lnote10_post_cpu_setup_hold
 
 	b	__primary_switch
 SYM_CODE_END(primary_entry)
@@ -664,7 +661,70 @@ SYM_FUNC_START(__enable_mmu)
 	msr	ttbr0_el1, x2			// load TTBR0
 	load_ttbr1 x1, x1, x3
 
+	/*
+	 * Fifth diagnostic boundary, stage 1: TTBR0/TTBR1 setup completed.
+	 * Paint rows 672..703 yellow before the actual SCTLR/MMU transition.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0xff00
+	movk	x11, #0xffff, lsl #16
+	movk	x11, #0xff00, lsl #32
+	movk	x11, #0xffff, lsl #48		// two ARGB8888 yellow pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_pre_mmu_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_pre_mmu_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_pre_mmu_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_pre_mmu_clean
+	dsb	sy
+	isb
+
 	set_sctlr_el1	x0
+
+	/*
+	 * Fifth diagnostic boundary, stage 2: the complete set_sctlr_el1
+	 * sequence returned with the MMU enabled. Paint the same band red via
+	 * the diagnostic TTBR0 framebuffer identity mapping.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0xffff, lsl #16
+	movk	x11, #0xffff, lsl #48		// two ARGB8888 red pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_post_mmu_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_mmu_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_mmu_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_mmu_clean
+	dsb	sy
+	isb
 
 	ret
 SYM_FUNC_END(__enable_mmu)
@@ -703,9 +763,77 @@ SYM_FUNC_START_LOCAL(__no_granule_support)
 SYM_FUNC_END(__no_granule_support)
 
 SYM_FUNC_START_LOCAL(__primary_switch)
+	/*
+	 * Fifth diagnostic boundary, stage 0: prove entry into __primary_switch
+	 * while the MMU is still off by painting rows 672..703 blue.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0x00ff
+	movk	x11, #0xff00, lsl #16
+	movk	x11, #0x00ff, lsl #32
+	movk	x11, #0xff00, lsl #48		// two ARGB8888 blue pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_primary_switch_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_primary_switch_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_primary_switch_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_primary_switch_clean
+	dsb	sy
+	isb
+
 	adrp	x1, reserved_pg_dir
 	adrp	x2, __pi_init_idmap_pg_dir
 	bl	__enable_mmu
+
+	/*
+	 * Fifth diagnostic boundary, stage 3: __enable_mmu returned to
+	 * __primary_switch with the MMU enabled. Paint rows 672..703 orange,
+	 * then hold before stack reset and __pi_early_map_kernel.
+	 */
+	movz	x9, #0xca3b, lsl #16
+	movk	x9, #0x1000
+	mov	x10, x9
+	movz	x11, #0x8000
+	movk	x11, #0xffff, lsl #16
+	movk	x11, #0x8000, lsl #32
+	movk	x11, #0xffff, lsl #48		// two ARGB8888 orange pixels
+	movz	x12, #0x0002, lsl #16
+	movk	x12, #0xd000
+	add	x12, x9, x12
+.Lnote10_post_enable_return_fill:
+	stp	x11, x11, [x10], #16
+	cmp	x10, x12
+	b.lo	.Lnote10_post_enable_return_fill
+
+	raw_dcache_line_size x13, x14
+	movz	x10, #0xca3b, lsl #16
+	movk	x10, #0x1000
+	sub	x14, x13, #1
+	bic	x10, x10, x14
+.Lnote10_post_enable_return_clean:
+	dc	cvac, x10
+	add	x10, x10, x13
+	cmp	x10, x12
+	b.lo	.Lnote10_post_enable_return_clean
+	dsb	sy
+	isb
+.Lnote10_post_enable_return_hold:
+	wfe
+	b	.Lnote10_post_enable_return_hold
 
 	adrp	x1, early_init_stack
 	mov	sp, x1
