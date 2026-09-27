@@ -512,6 +512,35 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
+
+	acpi_table_upgrade();
+
+	/*
+	 * Note10 bring-up diagnostic: the ACPI override scan returned. Repaint
+	 * the surviving ordinary setup_arch bridge coral and hold immediately
+	 * before acpi_boot_table_init().
+	 */
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x4040\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0x4040, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
 			"2:\n\t"
 			"wfe\n\t"
 			"b 2b\n\t"
@@ -520,8 +549,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
 			  "x14", "cc", "memory");
 	}
-
-	acpi_table_upgrade();
 
 	/* Parse the ACPI tables for possible boot-time configuration */
 	acpi_boot_table_init();
