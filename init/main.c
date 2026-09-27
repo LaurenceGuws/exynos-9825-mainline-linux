@@ -113,6 +113,9 @@
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
+#ifdef CONFIG_ARM64
+#include <asm/mmu.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/initcall.h>
@@ -1075,6 +1078,58 @@ void start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic: setup_arch() genuinely returned. Re-check
+	 * the saved bootloader x1-x3 contract and the published evidence bridge
+	 * before painting blue. Any failure leaves the previous purple breadcrumb.
+	 */
+	if (boot_args[1] || boot_args[2] || boot_args[3])
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+	{
+		void *bridge = READ_ONCE(note10_paging_bridge);
+
+		if (!bridge)
+			asm volatile("1:\n\t"
+				     "wfe\n\t"
+				     "b 1b\n\t"
+				     :
+				     :
+				     : "memory");
+
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+	}
+#endif
 	mm_core_init_early();
 	/* Static keys and static calls are needed by LSMs */
 	jump_label_init();
