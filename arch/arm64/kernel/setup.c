@@ -541,9 +541,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
-			"2:\n\t"
-			"wfe\n\t"
-			"b 2b\n\t"
 			:
 			: "r" (bridge_reg)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
@@ -552,6 +549,44 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 
 	/* Parse the ACPI tables for possible boot-time configuration */
 	acpi_boot_table_init();
+
+	if (!acpi_disabled)
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+	/*
+	 * Note10 bring-up diagnostic: ACPI boot-table selection returned on the
+	 * expected DT lane. Repaint the surviving bridge blue and hold before
+	 * unflatten_device_tree().
+	 */
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0xc0ff\n\t"
+			"movk x11, #0xff40, lsl #16\n\t"
+			"movk x11, #0xc0ff, lsl #32\n\t"
+			"movk x11, #0xff40, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	if (acpi_disabled)
 		unflatten_device_tree();
