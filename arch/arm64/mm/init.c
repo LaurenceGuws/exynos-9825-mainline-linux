@@ -40,6 +40,7 @@
 #include <asm/kernel-pgtable.h>
 #include <asm/kvm_host.h>
 #include <asm/memory.h>
+#include <asm/mmu.h>
 #include <asm/numa.h>
 #include <asm/rsi.h>
 #include <asm/sections.h>
@@ -300,6 +301,7 @@ void __init arm64_memblock_init(void)
 void __init bootmem_init(void)
 {
 	unsigned long min, max;
+	void *bridge;
 
 	min = PFN_UP(memblock_start_of_DRAM());
 	max = PFN_DOWN(memblock_end_of_DRAM());
@@ -310,6 +312,40 @@ void __init bootmem_init(void)
 	min_low_pfn = min;
 
 	arch_numa_init();
+
+	if (!numa_off)
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+	bridge = READ_ONCE(note10_paging_bridge);
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0xff00\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0xff00, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	kvm_hyp_reserve();
 	dma_limits_init();
