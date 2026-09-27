@@ -212,6 +212,7 @@ static void __init request_standard_resources(void)
 {
 	struct memblock_region *region;
 	struct resource *res;
+	void *bridge;
 	unsigned long i = 0;
 	size_t res_size;
 
@@ -225,6 +226,32 @@ static void __init request_standard_resources(void)
 	num_standard_resources = memblock.memory.cnt;
 	res_size = num_standard_resources * sizeof(*standard_resources);
 	standard_resources = memblock_alloc_or_panic(res_size, SMP_CACHE_BYTES);
+
+	bridge = READ_ONCE(note10_paging_bridge);
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x8000\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0x8000, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	for_each_mem_region(region) {
 		res = &standard_resources[i++];
@@ -636,9 +663,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
-			"2:\n\t"
-			"wfe\n\t"
-			"b 2b\n\t"
 			:
 			: "r" (bridge_reg)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
