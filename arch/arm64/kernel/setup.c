@@ -673,7 +673,7 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	/*
 	 * Note10 bring-up diagnostic: request_standard_resources() completed its
 	 * memory-resource loop and returned. Repaint the surviving setup_arch
-	 * bridge pink and hold before early_ioremap_reset().
+	 * bridge pink as a breadcrumb before later setup work.
 	 */
 	{
 		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
@@ -727,9 +727,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
@@ -740,6 +737,36 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	}
 
 	arm64_rsi_init();
+
+	/*
+	 * Note10 bring-up diagnostic: arm64_rsi_init() returned on the proven
+	 * non-SMC conduit path. Repaint the surviving setup_arch bridge cyan and
+	 * hold before init_bootcpu_ops().
+	 */
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0xffff\n\t"
+			"movk x11, #0xff00, lsl #16\n\t"
+			"movk x11, #0xffff, lsl #32\n\t"
+			"movk x11, #0xff00, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	init_bootcpu_ops();
 	smp_init_cpus();
