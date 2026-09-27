@@ -338,9 +338,6 @@ void __init bootmem_init(void)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
-			"2:\n\t"
-			"wfe\n\t"
-			"b 2b\n\t"
 			:
 			: "r" (bridge_reg)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
@@ -349,6 +346,40 @@ void __init bootmem_init(void)
 
 	kvm_hyp_reserve();
 	dma_limits_init();
+
+	if (arm64_dma_phys_limit != SZ_4G)
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+	bridge = READ_ONCE(note10_paging_bridge);
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x00ff\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0x00ff, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			"2:\n\t"
+			"wfe\n\t"
+			"b 2b\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
 
 	/*
 	 * Reserve the CMA area after arm64_dma_phys_limit was initialised.
