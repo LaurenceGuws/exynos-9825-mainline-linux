@@ -37,6 +37,9 @@
 #include "shuffle.h"
 
 #include <asm/setup.h>
+#ifdef CONFIG_ARM64
+#include <asm/mmu.h>
+#endif
 
 #ifndef CONFIG_NUMA
 unsigned long max_mapnr;
@@ -2696,6 +2699,50 @@ void __init mm_core_init_early(void)
 {
 	hugetlb_cma_reserve();
 	hugetlb_bootmem_alloc();
+
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic: both early HugeTLB calls genuinely returned.
+	 * Paint the surviving evidence bridge orange before free_area_init().
+	 */
+	{
+		void *bridge = READ_ONCE(note10_paging_bridge);
+
+		if (!bridge)
+			asm volatile("1:\n\t"
+				     "wfe\n\t"
+				     "b 1b\n\t"
+				     :
+				     :
+				     : "memory");
+
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x8000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x8000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+	}
+#endif
 
 	free_area_init();
 }
