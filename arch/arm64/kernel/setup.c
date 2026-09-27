@@ -796,6 +796,63 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
+
+	smp_init_cpus();
+
+	/*
+	 * Note10 bring-up diagnostic: smp_init_cpus() returned. The frozen DT has
+	 * exactly eight CPUs with the expected MPIDRs and PSCI enable methods.
+	 * Require the exact logical map plus successful secondary PSCI ops setup
+	 * before repainting the surviving setup_arch bridge yellow.
+	 */
+	{
+		const struct cpu_operations *boot_ops = get_cpu_ops(0);
+		bool smp_ok;
+		unsigned int cpu;
+
+		smp_ok = boot_ops &&
+			 cpu_logical_map(0) == 0x0 &&
+			 cpu_logical_map(1) == 0x1 &&
+			 cpu_logical_map(2) == 0x2 &&
+			 cpu_logical_map(3) == 0x3 &&
+			 cpu_logical_map(4) == 0x4 &&
+			 cpu_logical_map(5) == 0x5 &&
+			 cpu_logical_map(6) == 0x100 &&
+			 cpu_logical_map(7) == 0x101;
+
+		for (cpu = 1; smp_ok && cpu < 8; cpu++)
+			smp_ok = get_cpu_ops(cpu) == boot_ops && cpu_possible(cpu);
+
+		if (!smp_ok)
+			asm volatile("1:\n\t"
+				     "wfe\n\t"
+				     "b 1b\n\t"
+				     :
+				     :
+				     : "memory");
+	}
+
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0xff00\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0xff00, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
 			"2:\n\t"
 			"wfe\n\t"
 			"b 2b\n\t"
@@ -805,7 +862,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			  "x14", "cc", "memory");
 	}
 
-	smp_init_cpus();
 	smp_build_mpidr_hash();
 
 #ifdef CONFIG_ARM64_SW_TTBR0_PAN
