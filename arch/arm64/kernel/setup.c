@@ -853,6 +853,50 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			"cmp x10, x12\n\t"
 			"b.lo 1b\n\t"
 			"dsb sy\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
+			  "x14", "cc", "memory");
+	}
+
+	smp_build_mpidr_hash();
+
+	/*
+	 * Note10 bring-up diagnostic: smp_build_mpidr_hash() returned. Require the
+	 * exact hash derived from the physically proven eight-CPU topology before
+	 * repainting the surviving setup_arch bridge purple.
+	 */
+	if (mpidr_hash.mask != 0x107 ||
+	    mpidr_hash.shift_aff[0] != 0 ||
+	    mpidr_hash.shift_aff[1] != 5 ||
+	    mpidr_hash.shift_aff[2] != 12 ||
+	    mpidr_hash.shift_aff[3] != 28 ||
+	    mpidr_hash.bits != 4 ||
+	    mpidr_hash_size() != 16 ||
+	    num_possible_cpus() != 8)
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+	{
+		register unsigned long bridge_reg asm("x9") = (unsigned long)bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x00ff\n\t"
+			"movk x11, #0xff80, lsl #16\n\t"
+			"movk x11, #0x00ff, lsl #32\n\t"
+			"movk x11, #0xff80, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
 			"2:\n\t"
 			"wfe\n\t"
 			"b 2b\n\t"
@@ -861,8 +905,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 			: "x0", "x1", "x8", "x10", "x11", "x12", "x13",
 			  "x14", "cc", "memory");
 	}
-
-	smp_build_mpidr_hash();
 
 #ifdef CONFIG_ARM64_SW_TTBR0_PAN
 	/*
