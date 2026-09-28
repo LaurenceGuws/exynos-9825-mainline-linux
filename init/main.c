@@ -1305,9 +1305,6 @@ void start_kernel(void)
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
@@ -1316,6 +1313,71 @@ void start_kernel(void)
 	}
 #endif
 	setup_command_line(command_line);
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic: setup_command_line() genuinely returned
+	 * with both exact 134-byte command-line copies published.
+	 */
+	{
+		char *saved = READ_ONCE(saved_command_line);
+		char *static_cmd = READ_ONCE(static_command_line);
+		unsigned int saved_len = READ_ONCE(saved_command_line_len);
+		unsigned int i;
+		void *bridge;
+
+		if (!saved || !static_cmd || saved == static_cmd ||
+		    ((unsigned long)saved & (SMP_CACHE_BYTES - 1)) ||
+		    ((unsigned long)static_cmd & (SMP_CACHE_BYTES - 1)) ||
+		    saved_len != 133 || READ_ONCE(boot_command_line[133]) != '\0')
+			goto command_line_fail;
+
+		for (i = 0; i < 134; i++) {
+			char expected = READ_ONCE(boot_command_line[i]);
+
+			if (READ_ONCE(saved[i]) != expected ||
+			    READ_ONCE(static_cmd[i]) != expected)
+				goto command_line_fail;
+		}
+
+		bridge = READ_ONCE(note10_paging_bridge);
+		if (!bridge)
+			goto command_line_fail;
+
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xe0d0\n\t"
+				"movk x11, #0xff40, lsl #16\n\t"
+				"movk x11, #0xe0d0, lsl #32\n\t"
+				"movk x11, #0xff40, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+command_line_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+	}
+#endif
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
