@@ -979,6 +979,7 @@ void start_kernel(void)
 
 #ifdef CONFIG_ARM64
 	void *note10_n1_diag_bridge = NULL;
+	void *note10_p1_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -1507,6 +1508,7 @@ command_line_success:
 			goto nr_cpu_ids_fail;
 
 		/* CORAL: all N1 postconditions passed. */
+		note10_p1_diag_bridge = fresh_bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
@@ -1524,6 +1526,109 @@ command_line_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto nr_cpu_ids_success;
+
+nr_cpu_ids_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+nr_cpu_ids_success:
+		;
+	}
+#endif
+
+	setup_per_cpu_areas();
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic P1: setup_per_cpu_areas() genuinely
+	 * returned. RED distinguishes post-return publication failure from a
+	 * target which never returned and therefore left CORAL visible.
+	 */
+	{
+		void *base;
+		const unsigned long *unit_offsets;
+		unsigned long delta;
+		void *fresh_bridge;
+
+		/* RED: setup_per_cpu_areas() returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_p1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x0000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x0000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		base = READ_ONCE(pcpu_base_addr);
+		unit_offsets = READ_ONCE(pcpu_unit_offsets);
+		if (!base || !unit_offsets)
+			goto per_cpu_areas_fail;
+
+		delta = (unsigned long)base - (unsigned long)__per_cpu_start;
+		if (READ_ONCE(__per_cpu_offset[0]) !=
+				delta + READ_ONCE(unit_offsets[0]) ||
+		    READ_ONCE(__per_cpu_offset[1]) !=
+				delta + READ_ONCE(unit_offsets[1]) ||
+		    READ_ONCE(__per_cpu_offset[2]) !=
+				delta + READ_ONCE(unit_offsets[2]) ||
+		    READ_ONCE(__per_cpu_offset[3]) !=
+				delta + READ_ONCE(unit_offsets[3]) ||
+		    READ_ONCE(__per_cpu_offset[4]) !=
+				delta + READ_ONCE(unit_offsets[4]) ||
+		    READ_ONCE(__per_cpu_offset[5]) !=
+				delta + READ_ONCE(unit_offsets[5]) ||
+		    READ_ONCE(__per_cpu_offset[6]) !=
+				delta + READ_ONCE(unit_offsets[6]) ||
+		    READ_ONCE(__per_cpu_offset[7]) !=
+				delta + READ_ONCE(unit_offsets[7]))
+			goto per_cpu_areas_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto per_cpu_areas_fail;
+
+		/* GREEN: runtime percpu publication validated. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
 				"2:\n\t"
 				"wfe\n\t"
 				"b 2b\n\t"
@@ -1533,7 +1638,7 @@ command_line_success:
 				  "x13", "x14", "cc", "memory");
 		}
 
-nr_cpu_ids_fail:
+per_cpu_areas_fail:
 		asm volatile("1:\n\t"
 			     "wfe\n\t"
 			     "b 1b\n\t"
@@ -1543,7 +1648,6 @@ nr_cpu_ids_fail:
 	}
 #endif
 
-	setup_per_cpu_areas();
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
 	early_numa_node_init();
 	boot_cpu_hotplug_init();
