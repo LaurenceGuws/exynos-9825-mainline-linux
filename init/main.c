@@ -978,6 +978,8 @@ void start_kernel(void)
 	char *after_dashes;
 
 #ifdef CONFIG_ARM64
+	void *note10_n1_diag_bridge = NULL;
+
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
 	 * the compiler-generated arm64/SCS prologue, before any ordinary
@@ -1343,6 +1345,7 @@ void start_kernel(void)
 		if (!bridge)
 			goto command_line_fail;
 
+		note10_n1_diag_bridge = bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)bridge;
@@ -1365,6 +1368,7 @@ void start_kernel(void)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
 				  "x13", "x14", "cc", "memory");
 		}
+		goto command_line_success;
 
 command_line_fail:
 		asm volatile("1:\n\t"
@@ -1373,21 +1377,98 @@ command_line_fail:
 			     :
 			     :
 			     : "memory");
+
+command_line_success:
+		;
 	}
 #endif
 	setup_nr_cpu_ids();
 #ifdef CONFIG_ARM64
 	/*
-	 * Note10 bring-up diagnostic: setup_nr_cpu_ids() genuinely returned
-	 * after publishing the exact eight-CPU possible-ID ceiling.
+	 * Note10 bring-up diagnostic: setup_nr_cpu_ids() genuinely returned.
+	 * Repaint the calibrated slot after each accepted postcondition so a
+	 * terminal failure identifies the exact boundary reached.
 	 */
 	{
 		const unsigned long *possible = cpumask_bits(cpu_possible_mask);
-		void *bridge;
+		void *fresh_bridge;
 
-		if (READ_ONCE(nr_cpu_ids) != 8 ||
-		    READ_ONCE(__num_possible_cpus) != 8 ||
-		    READ_ONCE(possible[0]) != 0xff ||
+		/* VIOLET: setup_nr_cpu_ids() returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_n1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xff80, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xff80, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		if (READ_ONCE(nr_cpu_ids) != 8)
+			goto nr_cpu_ids_fail;
+
+		/* BLUE: nr_cpu_ids == 8. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_n1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		if (READ_ONCE(__num_possible_cpus) != 8)
+			goto nr_cpu_ids_fail;
+
+		/* YELLOW: both scalar CPU-count checks passed. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_n1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		if (READ_ONCE(possible[0]) != 0xff ||
 		    READ_ONCE(possible[1]) ||
 		    READ_ONCE(possible[2]) ||
 		    READ_ONCE(possible[3]) ||
@@ -1397,13 +1478,38 @@ command_line_fail:
 		    READ_ONCE(possible[7]))
 			goto nr_cpu_ids_fail;
 
-		bridge = READ_ONCE(note10_paging_bridge);
-		if (!bridge)
-			goto nr_cpu_ids_fail;
-
+		/* LIME: exact eight-word possible mask passed. */
 		{
 			register unsigned long bridge_reg asm("x9") =
-				(unsigned long)bridge;
+				(unsigned long)note10_n1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xff7f, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xff7f, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto nr_cpu_ids_fail;
+
+		/* CORAL: all N1 postconditions passed. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
 
 			asm volatile("mov x10, %0\n\t"
 				"movz x11, #0x7f50\n\t"
@@ -1436,6 +1542,7 @@ nr_cpu_ids_fail:
 			     : "memory");
 	}
 #endif
+
 	setup_per_cpu_areas();
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
 	early_numa_node_init();
