@@ -1347,22 +1347,69 @@ void start_kernel(void)
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)bridge;
 
+			/*
+			 * Framebuffer breadcrumb calibration only. The 32-row evidence
+			 * band is rows 672..703 at 0x1680 bytes per scanline. First
+			 * establish four 8-row bands, then overwrite the middle 16
+			 * rows. Final expected display is RED / YELLOW / WHITE.
+			 */
 			asm volatile("mov x10, %0\n\t"
-				"movz x11, #0xe0d0\n\t"
-				"movk x11, #0xff40, lsl #16\n\t"
-				"movk x11, #0xe0d0, lsl #32\n\t"
-				"movk x11, #0xff40, lsl #48\n\t"
-				"movz x12, #0x0002, lsl #16\n\t"
-				"movk x12, #0xd000\n\t"
-				"add x12, x10, x12\n\t"
+				/* 8 rows = 0xb400 bytes. */
+				"movz x12, #0xb400\n\t"
+				"add x13, x10, x12\n\t"
+				/* RED rows 672..679. */
+				"movz x11, #0x0000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x0000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
 				"1:\n\t"
 				"str x11, [x10], #8\n\t"
-				"cmp x10, x12\n\t"
+				"cmp x10, x13\n\t"
 				"b.lo 1b\n\t"
-				"dsb sy\n\t"
+				/* GREEN rows 680..687. */
+				"add x13, x13, x12\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
 				"2:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x13\n\t"
+				"b.lo 2b\n\t"
+				/* BLUE rows 688..695. */
+				"add x13, x13, x12\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"3:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x13\n\t"
+				"b.lo 3b\n\t"
+				/* WHITE rows 696..703. */
+				"add x13, x13, x12\n\t"
+				"mov x11, #-1\n\t"
+				"4:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x13\n\t"
+				"b.lo 4b\n\t"
+				"dsb sy\n\t"
+				/* Overwrite GREEN+BLUE with YELLOW, rows 680..695. */
+				"mov x10, %0\n\t"
+				"add x10, x10, x12\n\t"
+				"add x13, x10, x12, lsl #1\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"5:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x13\n\t"
+				"b.lo 5b\n\t"
+				"dsb sy\n\t"
+				"6:\n\t"
 				"wfe\n\t"
-				"b 2b\n\t"
+				"b 6b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
