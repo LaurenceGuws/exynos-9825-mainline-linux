@@ -983,6 +983,7 @@ void start_kernel(void)
 	void *note10_p2_diag_bridge = NULL;
 	void *note10_nh1_diag_bridge = NULL;
 	void *note10_nh2_diag_bridge = NULL;
+	void *note10_cl1_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -1871,6 +1872,7 @@ early_numa_node_init_success:
 			goto boot_cpu_hotplug_init_fail;
 
 		/* MAGENTA / PINK: boot CPU hotplug state publication validated. */
+		note10_cl1_diag_bridge = fresh_bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
@@ -1888,6 +1890,119 @@ early_numa_node_init_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto boot_cpu_hotplug_init_success;
+boot_cpu_hotplug_init_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+boot_cpu_hotplug_init_success:
+		;
+	}
+#endif
+
+	print_kernel_cmdline(saved_command_line);
+#ifdef CONFIG_ARM64
+	/* ORANGE / CORAL: print_kernel_cmdline() genuinely returned. */
+	{
+		register unsigned long bridge_reg asm("x9") =
+			(unsigned long)note10_cl1_diag_bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x7f50\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0x7f50, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12",
+			  "x13", "x14", "cc", "memory");
+	}
+#endif
+	/* parameters may set static keys */
+	parse_early_param();
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic CL1: the second parse_early_param()
+	 * genuinely returned through its already-proven done==1 guard path.
+	 */
+	{
+		const char *saved;
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		/* RED: both CL1 production calls returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_cl1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x0000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x0000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		saved = READ_ONCE(saved_command_line);
+		if (!saved ||
+		    READ_ONCE(saved_command_line_len) != 133 ||
+		    READ_ONCE(saved[133]) != '\0')
+			goto command_line_log_earlyparam_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto command_line_log_earlyparam_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto command_line_log_earlyparam_fail;
+
+		/* GREEN: command-line logging and early-param guard validated. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
 				"2:\n\t"
 				"wfe\n\t"
 				"b 2b\n\t"
@@ -1897,7 +2012,7 @@ early_numa_node_init_success:
 				  "x13", "x14", "cc", "memory");
 		}
 
-boot_cpu_hotplug_init_fail:
+command_line_log_earlyparam_fail:
 		asm volatile("1:\n\t"
 			     "wfe\n\t"
 			     "b 1b\n\t"
@@ -1906,10 +2021,6 @@ boot_cpu_hotplug_init_fail:
 			     : "memory");
 	}
 #endif
-
-	print_kernel_cmdline(saved_command_line);
-	/* parameters may set static keys */
-	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
 				  __stop___param - __start___param,
