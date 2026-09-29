@@ -981,6 +981,7 @@ void start_kernel(void)
 	void *note10_n1_diag_bridge = NULL;
 	void *note10_p1_diag_bridge = NULL;
 	void *note10_p2_diag_bridge = NULL;
+	void *note10_nh1_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -1695,12 +1696,97 @@ per_cpu_areas_success:
 			goto smp_prepare_boot_cpu_fail;
 
 		/* WHITE: CPU0 runtime per-CPU base handoff validated. */
+		note10_nh1_diag_bridge = fresh_bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
 
 			asm volatile("mov x10, %0\n\t"
 				"mov x11, #-1\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto smp_prepare_boot_cpu_success;
+smp_prepare_boot_cpu_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+smp_prepare_boot_cpu_success:
+		;
+	}
+#endif
+	early_numa_node_init();
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic NH1: early_numa_node_init() genuinely
+	 * returned. RED distinguishes return from a target which never returned
+	 * and therefore left the proven P2 WHITE visible.
+	 */
+	{
+		void *fresh_bridge;
+
+		/* RED: early_numa_node_init() returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_nh1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x0000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x0000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		if (READ_ONCE(per_cpu(numa_node, 0)) ||
+		    READ_ONCE(per_cpu(numa_node, 1)) ||
+		    READ_ONCE(per_cpu(numa_node, 2)) ||
+		    READ_ONCE(per_cpu(numa_node, 3)) ||
+		    READ_ONCE(per_cpu(numa_node, 4)) ||
+		    READ_ONCE(per_cpu(numa_node, 5)) ||
+		    READ_ONCE(per_cpu(numa_node, 6)) ||
+		    READ_ONCE(per_cpu(numa_node, 7)))
+			goto early_numa_node_init_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto early_numa_node_init_fail;
+
+		/* CYAN: runtime CPU0..7 NUMA-node publication validated. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xffff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xffff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
 				"movz x12, #0x0002, lsl #16\n\t"
 				"movk x12, #0xd000\n\t"
 				"add x12, x10, x12\n\t"
@@ -1718,7 +1804,7 @@ per_cpu_areas_success:
 				  "x13", "x14", "cc", "memory");
 		}
 
-smp_prepare_boot_cpu_fail:
+early_numa_node_init_fail:
 		asm volatile("1:\n\t"
 			     "wfe\n\t"
 			     "b 1b\n\t"
@@ -1727,7 +1813,6 @@ smp_prepare_boot_cpu_fail:
 			     : "memory");
 	}
 #endif
-	early_numa_node_init();
 
 	boot_cpu_hotplug_init();
 
