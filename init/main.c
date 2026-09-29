@@ -2011,6 +2011,7 @@ boot_cpu_hotplug_init_success:
 				: "x0", "x1", "x8", "x10", "x11", "x12",
 				  "x13", "x14", "cc", "memory");
 		}
+		goto command_line_log_earlyparam_success;
 
 command_line_log_earlyparam_fail:
 		asm volatile("1:\n\t"
@@ -2019,6 +2020,10 @@ command_line_log_earlyparam_fail:
 			     :
 			     :
 			     : "memory");
+		__builtin_unreachable();
+
+command_line_log_earlyparam_success:
+		;
 	}
 #endif
 	after_dashes = parse_args("Booting kernel",
