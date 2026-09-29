@@ -984,6 +984,7 @@ void start_kernel(void)
 	void *note10_nh1_diag_bridge = NULL;
 	void *note10_nh2_diag_bridge = NULL;
 	void *note10_cl1_diag_bridge = NULL;
+	void *note10_kp1_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -1986,6 +1987,7 @@ boot_cpu_hotplug_init_success:
 			goto command_line_log_earlyparam_fail;
 
 		/* GREEN: command-line logging and early-param guard validated. */
+		note10_kp1_diag_bridge = fresh_bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
@@ -2003,16 +2005,12 @@ boot_cpu_hotplug_init_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
 				  "x13", "x14", "cc", "memory");
 		}
 		goto command_line_log_earlyparam_success;
-
 command_line_log_earlyparam_fail:
 		asm volatile("1:\n\t"
 			     "wfe\n\t"
@@ -2030,13 +2028,175 @@ command_line_log_earlyparam_success:
 				  static_command_line, __start___param,
 				  __stop___param - __start___param,
 				  -1, -1, NULL, &unknown_bootoption);
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic KP1: the first real Booting-kernel
+	 * parameter pass genuinely returned. BLUE separates parser return
+	 * from exact post-parse validation and the reporting helper.
+	 */
+	{
+		const char *init_cmd;
+		const char *pmos_env;
+
+		/* BLUE: main Booting-kernel parse returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_kp1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		if (after_dashes || READ_ONCE(panic_later))
+			goto booting_kernel_parse_fail;
+
+		init_cmd = READ_ONCE(execute_command);
+		if (!init_cmd ||
+		    READ_ONCE(init_cmd[0]) != '/' ||
+		    READ_ONCE(init_cmd[1]) != 'i' ||
+		    READ_ONCE(init_cmd[2]) != 'n' ||
+		    READ_ONCE(init_cmd[3]) != 'i' ||
+		    READ_ONCE(init_cmd[4]) != 't' ||
+		    READ_ONCE(init_cmd[5]) != '\0' ||
+		    READ_ONCE(argv_init[1]))
+			goto booting_kernel_parse_fail;
+
+		pmos_env = READ_ONCE(envp_init[2]);
+		if (!pmos_env ||
+		    READ_ONCE(pmos_env[0]) != 'p' ||
+		    READ_ONCE(pmos_env[1]) != 'm' ||
+		    READ_ONCE(pmos_env[2]) != 'o' ||
+		    READ_ONCE(pmos_env[3]) != 's' ||
+		    READ_ONCE(pmos_env[4]) != '_' ||
+		    READ_ONCE(pmos_env[5]) != 'r' ||
+		    READ_ONCE(pmos_env[6]) != 'o' ||
+		    READ_ONCE(pmos_env[7]) != 'o' ||
+		    READ_ONCE(pmos_env[8]) != 't' ||
+		    READ_ONCE(pmos_env[9]) != '=' ||
+		    READ_ONCE(pmos_env[10]) != '/' ||
+		    READ_ONCE(pmos_env[11]) != 'd' ||
+		    READ_ONCE(pmos_env[12]) != 'e' ||
+		    READ_ONCE(pmos_env[13]) != 'v' ||
+		    READ_ONCE(pmos_env[14]) != '/' ||
+		    READ_ONCE(pmos_env[15]) != 's' ||
+		    READ_ONCE(pmos_env[16]) != 'd' ||
+		    READ_ONCE(pmos_env[17]) != 'a' ||
+		    READ_ONCE(pmos_env[18]) != '3' ||
+		    READ_ONCE(pmos_env[19]) != '2' ||
+		    READ_ONCE(pmos_env[20]) != '\0' ||
+		    READ_ONCE(envp_init[3]) ||
+		    READ_ONCE(console_set_on_cmdline) != 1 ||
+		    READ_ONCE(extra_init_args))
+			goto booting_kernel_parse_fail;
+	}
+#endif
 	print_unknown_bootoptions();
+#ifdef CONFIG_ARM64
+	/* ORANGE / CORAL: parser state and unknown-option reporting returned. */
+	{
+		register unsigned long bridge_reg asm("x9") =
+			(unsigned long)note10_kp1_diag_bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x7f50\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0x7f50, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12",
+			  "x13", "x14", "cc", "memory");
+	}
+#endif
 	if (!IS_ERR_OR_NULL(after_dashes))
 		parse_args("Setting init args", after_dashes, NULL, 0, -1, -1,
 			   NULL, set_init_arg);
 	if (extra_init_args)
 		parse_args("Setting extra init args", extra_init_args,
 			   NULL, 0, -1, -1, NULL, set_init_arg);
+#ifdef CONFIG_ARM64
+	/*
+	 * Both init-argument parser guards have now fallen through on the
+	 * exact NULL pre-state. Keep random_init_early() beyond this checkpoint.
+	 */
+	{
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto booting_kernel_skip_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto booting_kernel_skip_fail;
+
+		/* WHITE: main parameter handoff and deterministic skip path passed. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"mov x11, #-1\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+booting_kernel_skip_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+		__builtin_unreachable();
+	}
+
+booting_kernel_parse_fail:
+	asm volatile("1:\n\t"
+		     "wfe\n\t"
+		     "b 1b\n\t"
+		     :
+		     :
+		     : "memory");
+	__builtin_unreachable();
+#endif
 
 	/* Architectural and non-timekeeping rng init, before allocator init */
 	random_init_early(command_line);
