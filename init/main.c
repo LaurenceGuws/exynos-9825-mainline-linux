@@ -2177,6 +2177,7 @@ command_line_log_earlyparam_success:
 				: "x0", "x1", "x8", "x10", "x11", "x12",
 				  "x13", "x14", "cc", "memory");
 		}
+		goto booting_kernel_skip_success;
 
 booting_kernel_skip_fail:
 		asm volatile("1:\n\t"
@@ -2186,7 +2187,11 @@ booting_kernel_skip_fail:
 			     :
 			     : "memory");
 		__builtin_unreachable();
+
+booting_kernel_skip_success:
+		;
 	}
+	goto booting_kernel_parse_success;
 
 booting_kernel_parse_fail:
 	asm volatile("1:\n\t"
@@ -2196,6 +2201,9 @@ booting_kernel_parse_fail:
 		     :
 		     : "memory");
 	__builtin_unreachable();
+
+booting_kernel_parse_success:
+	;
 #endif
 
 	/* Architectural and non-timekeeping rng init, before allocator init */
