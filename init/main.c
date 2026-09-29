@@ -982,6 +982,7 @@ void start_kernel(void)
 	void *note10_p1_diag_bridge = NULL;
 	void *note10_p2_diag_bridge = NULL;
 	void *note10_nh1_diag_bridge = NULL;
+	void *note10_nh2_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -1778,6 +1779,7 @@ smp_prepare_boot_cpu_success:
 			goto early_numa_node_init_fail;
 
 		/* CYAN: runtime CPU0..7 NUMA-node publication validated. */
+		note10_nh2_diag_bridge = fresh_bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
@@ -1795,6 +1797,97 @@ smp_prepare_boot_cpu_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto early_numa_node_init_success;
+early_numa_node_init_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+early_numa_node_init_success:
+		;
+	}
+#endif
+
+	boot_cpu_hotplug_init();
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic NH2: boot_cpu_hotplug_init() genuinely
+	 * returned. YELLOW distinguishes return from a target which never
+	 * returned and therefore left the proven NH1 CYAN visible.
+	 */
+	{
+		const unsigned long *booted = cpumask_bits(&cpus_booted_once_mask);
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		/* YELLOW: boot_cpu_hotplug_init() returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_nh2_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		if (READ_ONCE(booted[0]) != 0x1 ||
+		    READ_ONCE(booted[1]) ||
+		    READ_ONCE(booted[2]) ||
+		    READ_ONCE(booted[3]) ||
+		    READ_ONCE(booted[4]) ||
+		    READ_ONCE(booted[5]) ||
+		    READ_ONCE(booted[6]) ||
+		    READ_ONCE(booted[7]))
+			goto boot_cpu_hotplug_init_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto boot_cpu_hotplug_init_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto boot_cpu_hotplug_init_fail;
+
+		/* MAGENTA / PINK: boot CPU hotplug state publication validated. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
 				"2:\n\t"
 				"wfe\n\t"
 				"b 2b\n\t"
@@ -1804,7 +1897,7 @@ smp_prepare_boot_cpu_success:
 				  "x13", "x14", "cc", "memory");
 		}
 
-early_numa_node_init_fail:
+boot_cpu_hotplug_init_fail:
 		asm volatile("1:\n\t"
 			     "wfe\n\t"
 			     "b 1b\n\t"
@@ -1813,8 +1906,6 @@ early_numa_node_init_fail:
 			     : "memory");
 	}
 #endif
-
-	boot_cpu_hotplug_init();
 
 	print_kernel_cmdline(saved_command_line);
 	/* parameters may set static keys */
