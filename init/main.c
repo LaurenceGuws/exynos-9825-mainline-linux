@@ -980,6 +980,7 @@ void start_kernel(void)
 #ifdef CONFIG_ARM64
 	void *note10_n1_diag_bridge = NULL;
 	void *note10_p1_diag_bridge = NULL;
+	void *note10_p2_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -1612,6 +1613,7 @@ nr_cpu_ids_success:
 			goto per_cpu_areas_fail;
 
 		/* GREEN: runtime percpu publication validated. */
+		note10_p2_diag_bridge = fresh_bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
@@ -1629,6 +1631,84 @@ nr_cpu_ids_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto per_cpu_areas_success;
+
+per_cpu_areas_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+
+per_cpu_areas_success:
+		;
+	}
+#endif
+
+	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic P2: smp_prepare_boot_cpu() genuinely
+	 * returned. BLUE distinguishes return from a target which never
+	 * returned and therefore left the proven P1 GREEN visible.
+	 */
+	{
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		/* BLUE: smp_prepare_boot_cpu() returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_p2_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto smp_prepare_boot_cpu_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto smp_prepare_boot_cpu_fail;
+
+		/* WHITE: CPU0 runtime per-CPU base handoff validated. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"mov x11, #-1\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
 				"2:\n\t"
 				"wfe\n\t"
 				"b 2b\n\t"
@@ -1638,7 +1718,7 @@ nr_cpu_ids_success:
 				  "x13", "x14", "cc", "memory");
 		}
 
-per_cpu_areas_fail:
+smp_prepare_boot_cpu_fail:
 		asm volatile("1:\n\t"
 			     "wfe\n\t"
 			     "b 1b\n\t"
@@ -1647,9 +1727,8 @@ per_cpu_areas_fail:
 			     : "memory");
 	}
 #endif
-
-	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
 	early_numa_node_init();
+
 	boot_cpu_hotplug_init();
 
 	print_kernel_cmdline(saved_command_line);
