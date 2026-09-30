@@ -990,6 +990,7 @@ void start_kernel(void)
 	void *note10_lb1_diag_bridge = NULL;
 	char *note10_lb1_pre_log_buf = NULL;
 	void *note10_vfs1_diag_bridge = NULL;
+	void *note10_et1_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -2640,6 +2641,8 @@ vfs_caches_target:
 		if (!fresh_bridge)
 			goto vfs_caches_post_fail;
 
+		note10_et1_diag_bridge = fresh_bridge;
+
 		/* BLUE: VFS early caches returned with bounded continuity intact. */
 		{
 			register unsigned long bridge_reg asm("x9") =
@@ -2658,9 +2661,6 @@ vfs_caches_target:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
@@ -2681,8 +2681,165 @@ vfs_caches_success:
 		;
 	}
 #endif
+#ifdef CONFIG_ARM64
+	{
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+		void *failure_bridge;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		failure_bridge = fresh_bridge ? fresh_bridge : note10_et1_diag_bridge;
+		if (!irqs_disabled())
+			goto extable_trap_pre_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto extable_trap_pre_fail;
+
+		if (!fresh_bridge)
+			goto extable_trap_pre_fail;
+
+		note10_et1_diag_bridge = fresh_bridge;
+
+		/* WHITE: exact ET1 pre-state passed. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"mov x11, #-1\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto extable_sort_target;
+
+extable_trap_pre_fail:
+		/* YELLOW: exact ET1 pre-state failed; targets are not entered. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)failure_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		__builtin_unreachable();
+
+extable_sort_target:
+		;
+	}
+#endif
 	sort_main_extable();
+#ifdef CONFIG_ARM64
+	{
+		/* RED: sort_main_extable() genuinely returned. */
+		register unsigned long bridge_reg asm("x9") =
+			(unsigned long)note10_et1_diag_bridge;
+
+		asm volatile("mov x10, %0\n\t"
+			"movz x11, #0x0000\n\t"
+			"movk x11, #0xffff, lsl #16\n\t"
+			"movk x11, #0x0000, lsl #32\n\t"
+			"movk x11, #0xffff, lsl #48\n\t"
+			"movz x12, #0x0002, lsl #16\n\t"
+			"movk x12, #0xd000\n\t"
+			"add x12, x10, x12\n\t"
+			"1:\n\t"
+			"str x11, [x10], #8\n\t"
+			"cmp x10, x12\n\t"
+			"b.lo 1b\n\t"
+			"dsb sy\n\t"
+			:
+			: "r" (bridge_reg)
+			: "x0", "x1", "x8", "x10", "x11", "x12",
+			  "x13", "x14", "cc", "memory");
+	}
+#endif
 	trap_init();
+#ifdef CONFIG_ARM64
+	{
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		if (!irqs_disabled())
+			goto extable_trap_post_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto extable_trap_post_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto extable_trap_post_fail;
+
+		/* GREEN: ET1 completed through trap_init(). */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto extable_trap_success;
+
+extable_trap_post_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+		__builtin_unreachable();
+
+extable_trap_success:
+		;
+	}
+#endif
 	mm_core_init();
 	maple_tree_init();
 	poking_init();
