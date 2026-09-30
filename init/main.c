@@ -985,6 +985,8 @@ void start_kernel(void)
 	void *note10_nh2_diag_bridge = NULL;
 	void *note10_cl1_diag_bridge = NULL;
 	void *note10_kp1_diag_bridge = NULL;
+	void *note10_ri1_diag_bridge = NULL;
+	bool note10_ri1_pre_ready = false;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -2155,6 +2157,7 @@ command_line_log_earlyparam_success:
 			goto booting_kernel_skip_fail;
 
 		/* WHITE: main parameter handoff and deterministic skip path passed. */
+		note10_ri1_diag_bridge = fresh_bridge;
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
@@ -2169,9 +2172,6 @@ command_line_log_earlyparam_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
@@ -2207,7 +2207,158 @@ booting_kernel_parse_success:
 #endif
 
 	/* Architectural and non-timekeeping rng init, before allocator init */
+#ifdef CONFIG_ARM64
+	note10_ri1_pre_ready = rng_is_initialized();
+#endif
 	random_init_early(command_line);
+#ifdef CONFIG_ARM64
+	/*
+	 * Note10 bring-up diagnostic RI1: random_init_early() genuinely
+	 * returned. RED is the first operator-facing post-return action.
+	 */
+	{
+		bool post_ready;
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		/* RED: early random initialization returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_ri1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x0000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x0000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		post_ready = rng_is_initialized();
+		if (note10_ri1_pre_ready && !post_ready)
+			goto early_random_init_fail;
+
+		if (command_line != boot_command_line ||
+		    READ_ONCE(boot_command_line[133]) != '\0' ||
+		    READ_ONCE(saved_command_line_len) != 133)
+			goto early_random_init_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto early_random_init_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto early_random_init_fail;
+
+		if (!note10_ri1_pre_ready && !post_ready) {
+			/* CYAN: RI1 PASS, CRNG remains not initialized. */
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xffff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xffff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+			goto early_random_init_success;
+		}
+
+		if (!note10_ri1_pre_ready && post_ready) {
+			/* GREEN: RI1 PASS, CRNG became initialized. */
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+			goto early_random_init_success;
+		}
+
+		/* MAGENTA / PINK: RI1 PASS, CRNG was already initialized. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto early_random_init_success;
+
+early_random_init_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+		__builtin_unreachable();
+
+early_random_init_success:
+		;
+	}
+#endif
 
 	/*
 	 * These use large bootmem allocations and must precede
