@@ -2299,6 +2299,8 @@ static void __init memmap_init_reserved_range(phys_addr_t start,
 	}
 }
 
+static bool note10_mm3b3_memmap_stop __initdata = true;
+
 static void __init memmap_init_reserved_pages(void)
 {
 	struct memblock_region *region;
@@ -2329,6 +2331,8 @@ repeat:
 	 */
 	if (max_reserved != memblock.reserved.max)
 		goto repeat;
+	if (READ_ONCE(note10_mm3b3_memmap_stop))
+		return;
 
 	/*
 	 * initialize struct pages for reserved regions that don't have
@@ -2348,7 +2352,7 @@ repeat:
 	}
 }
 
-static bool note10_mm3b2_free_low_stop __initdata = true;
+static bool note10_mm3b3_free_low_stop __initdata = true;
 
 static unsigned long __init free_low_memory_core_early(void)
 {
@@ -2357,10 +2361,9 @@ static unsigned long __init free_low_memory_core_early(void)
 	u64 i;
 
 	memblock_clear_hotplug(0, -1);
-	if (READ_ONCE(note10_mm3b2_free_low_stop))
-		return count;
-
 	memmap_init_reserved_pages();
+	if (READ_ONCE(note10_mm3b3_free_low_stop))
+		return count;
 
 	/*
 	 * We need to use NUMA_NO_NODE instead of NODE_DATA(0)->node_id
@@ -2375,7 +2378,7 @@ static unsigned long __init free_low_memory_core_early(void)
 }
 
 static int reset_managed_pages_done __initdata;
-static bool note10_mm3b2_memblock_stop __initdata = true;
+static bool note10_mm3b3_memblock_stop __initdata = true;
 
 static void __init reset_node_managed_pages(pg_data_t *pgdat)
 {
@@ -2410,7 +2413,7 @@ void __init memblock_free_all(void)
 
 	memblock_clear_kho_scratch_only();
 	pages = free_low_memory_core_early();
-	if (READ_ONCE(note10_mm3b2_memblock_stop))
+	if (READ_ONCE(note10_mm3b3_memblock_stop))
 		return;
 
 	totalram_pages_add(pages);

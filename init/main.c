@@ -991,7 +991,7 @@ void start_kernel(void)
 	char *note10_lb1_pre_log_buf = NULL;
 	void *note10_vfs1_diag_bridge = NULL;
 	void *note10_et1_diag_bridge = NULL;
-	void *note10_mm3b2_diag_bridge = NULL;
+	void *note10_mm3b3_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -2800,7 +2800,7 @@ extable_sort_target:
 		if (!fresh_bridge)
 			goto extable_trap_post_fail;
 
-		note10_mm3b2_diag_bridge = fresh_bridge;
+		note10_mm3b3_diag_bridge = fresh_bridge;
 
 		/* GREEN: ET1 completed through trap_init(). */
 		{
@@ -2847,21 +2847,21 @@ extable_trap_success:
 		void *failure_bridge;
 
 		fresh_bridge = READ_ONCE(note10_paging_bridge);
-		failure_bridge = fresh_bridge ? fresh_bridge : note10_mm3b2_diag_bridge;
+		failure_bridge = fresh_bridge ? fresh_bridge : note10_mm3b3_diag_bridge;
 		if (totalram_pages() != 0 || slab_is_available() ||
 		    !irqs_disabled())
-			goto mm3b2_pre_fail;
+			goto mm3b3_pre_fail;
 
 		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
 		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
-			goto mm3b2_pre_fail;
+			goto mm3b3_pre_fail;
 
 		if (!fresh_bridge)
-			goto mm3b2_pre_fail;
+			goto mm3b3_pre_fail;
 
-		note10_mm3b2_diag_bridge = fresh_bridge;
+		note10_mm3b3_diag_bridge = fresh_bridge;
 
-		/* WHITE: exact MM3B2 pre-state passed. */
+		/* WHITE: exact MM3B3 pre-state passed. */
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
@@ -2881,10 +2881,10 @@ extable_trap_success:
 				: "x0", "x1", "x8", "x10", "x11", "x12",
 				  "x13", "x14", "cc", "memory");
 		}
-		goto mm3b2_target;
+		goto mm3b3_target;
 
-mm3b2_pre_fail:
-		/* YELLOW: exact MM3B2 pre-state failed; target is not entered. */
+mm3b3_pre_fail:
+		/* YELLOW: exact MM3B3 pre-state failed; target is not entered. */
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)failure_bridge;
@@ -2912,7 +2912,7 @@ mm3b2_pre_fail:
 		}
 		__builtin_unreachable();
 
-mm3b2_target:
+mm3b3_target:
 		;
 	}
 #endif
@@ -2922,10 +2922,10 @@ mm3b2_target:
 		unsigned long tpidr_el1;
 		void *fresh_bridge;
 
-		/* RED: MM3B2 returned through all three diagnostic stops. */
+		/* RED: MM3B3 returned through all four diagnostic stops. */
 		{
 			register unsigned long bridge_reg asm("x9") =
-				(unsigned long)note10_mm3b2_diag_bridge;
+				(unsigned long)note10_mm3b3_diag_bridge;
 
 			asm volatile("mov x10, %0\n\t"
 				"movz x11, #0x0000\n\t"
@@ -2948,25 +2948,25 @@ mm3b2_target:
 
 		if (totalram_pages() != 0 || slab_is_available() ||
 		    !irqs_disabled())
-			goto mm3b2_post_fail;
+			goto mm3b3_post_fail;
 
 		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
 		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
-			goto mm3b2_post_fail;
+			goto mm3b3_post_fail;
 
 		fresh_bridge = READ_ONCE(note10_paging_bridge);
 		if (!fresh_bridge)
-			goto mm3b2_post_fail;
+			goto mm3b3_post_fail;
 
-		/* ORANGE: clear-hotplug returned before reserved-page init. */
+		/* GOLD: first reserved-page phase stabilized before phase two. */
 		{
 			register unsigned long bridge_reg asm("x9") =
 				(unsigned long)fresh_bridge;
 
 			asm volatile("mov x10, %0\n\t"
-				"movz x11, #0x7f00\n\t"
+				"movz x11, #0xd700\n\t"
 				"movk x11, #0xffff, lsl #16\n\t"
-				"movk x11, #0x7f00, lsl #32\n\t"
+				"movk x11, #0xd700, lsl #32\n\t"
 				"movk x11, #0xffff, lsl #48\n\t"
 				"movz x12, #0x0002, lsl #16\n\t"
 				"movk x12, #0xd000\n\t"
@@ -2984,9 +2984,9 @@ mm3b2_target:
 				: "x0", "x1", "x8", "x10", "x11", "x12",
 				  "x13", "x14", "cc", "memory");
 		}
-		goto mm3b2_success;
+		goto mm3b3_success;
 
-mm3b2_post_fail:
+mm3b3_post_fail:
 		asm volatile("1:\n\t"
 			     "wfe\n\t"
 			     "b 1b\n\t"
@@ -2995,7 +2995,7 @@ mm3b2_post_fail:
 			     : "memory");
 		__builtin_unreachable();
 
-mm3b2_success:
+mm3b3_success:
 		;
 	}
 #endif
