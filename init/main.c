@@ -987,6 +987,8 @@ void start_kernel(void)
 	void *note10_kp1_diag_bridge = NULL;
 	void *note10_ri1_diag_bridge = NULL;
 	bool note10_ri1_pre_ready = false;
+	void *note10_lb1_diag_bridge = NULL;
+	char *note10_lb1_pre_log_buf = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -2262,6 +2264,8 @@ booting_kernel_parse_success:
 		if (!fresh_bridge)
 			goto early_random_init_fail;
 
+		note10_lb1_diag_bridge = fresh_bridge;
+
 		if (!note10_ri1_pre_ready && !post_ready) {
 			/* CYAN: RI1 PASS, CRNG remains not initialized. */
 			register unsigned long bridge_reg asm("x9") =
@@ -2280,9 +2284,6 @@ booting_kernel_parse_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
@@ -2308,9 +2309,6 @@ booting_kernel_parse_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
@@ -2336,9 +2334,6 @@ booting_kernel_parse_success:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
@@ -2356,7 +2351,7 @@ early_random_init_fail:
 		__builtin_unreachable();
 
 early_random_init_success:
-		;
+			;
 	}
 #endif
 
@@ -2364,7 +2359,171 @@ early_random_init_success:
 	 * These use large bootmem allocations and must precede
 	 * initalization of page allocator
 	 */
+#ifdef CONFIG_ARM64
+	{
+		char *pre_log_buf;
+		u32 pre_log_buf_len;
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		pre_log_buf = log_buf_addr_get();
+		pre_log_buf_len = log_buf_len_get();
+		if (!pre_log_buf || pre_log_buf_len != 131072 || !irqs_disabled())
+			goto log_buffer_pre_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto log_buffer_pre_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto log_buffer_pre_fail;
+
+		note10_lb1_diag_bridge = fresh_bridge;
+		note10_lb1_pre_log_buf = pre_log_buf;
+
+		/* WHITE: exact static printk-ring pre-state passed. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_lb1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"mov x11, #-1\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto log_buffer_target;
+
+log_buffer_pre_fail:
+		/* YELLOW: exact LB1 pre-state failed; do not enter the target. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_lb1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		__builtin_unreachable();
+
+log_buffer_target:
+		;
+	}
+#endif
 	setup_log_buf(0);
+#ifdef CONFIG_ARM64
+	{
+		char *post_log_buf;
+		u32 post_log_buf_len;
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		/* RED: setup_log_buf(0) genuinely returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_lb1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x0000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x0000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		post_log_buf = log_buf_addr_get();
+		post_log_buf_len = log_buf_len_get();
+		if (!post_log_buf || post_log_buf == note10_lb1_pre_log_buf ||
+		    post_log_buf_len != 4194304 || !irqs_disabled())
+			goto log_buffer_post_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto log_buffer_post_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto log_buffer_post_fail;
+
+		/* GREEN: dynamic printk ring is live at the exact 4 MiB size. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto log_buffer_success;
+
+log_buffer_post_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+		__builtin_unreachable();
+
+log_buffer_success:
+		;
+	}
+#endif
 	vfs_caches_init_early();
 	sort_main_extable();
 	trap_init();
