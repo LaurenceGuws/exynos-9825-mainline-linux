@@ -989,6 +989,7 @@ void start_kernel(void)
 	bool note10_ri1_pre_ready = false;
 	void *note10_lb1_diag_bridge = NULL;
 	char *note10_lb1_pre_log_buf = NULL;
+	void *note10_vfs1_diag_bridge = NULL;
 
 	/*
 	 * Note10 bring-up diagnostic: prove actual start_kernel entry after
@@ -2483,6 +2484,8 @@ log_buffer_target:
 		if (!fresh_bridge)
 			goto log_buffer_post_fail;
 
+		note10_vfs1_diag_bridge = fresh_bridge;
+
 		/* GREEN: dynamic printk ring is live at the exact 4 MiB size. */
 		{
 			register unsigned long bridge_reg asm("x9") =
@@ -2501,9 +2504,6 @@ log_buffer_target:
 				"cmp x10, x12\n\t"
 				"b.lo 1b\n\t"
 				"dsb sy\n\t"
-				"2:\n\t"
-				"wfe\n\t"
-				"b 2b\n\t"
 				:
 				: "r" (bridge_reg)
 				: "x0", "x1", "x8", "x10", "x11", "x12",
@@ -2524,7 +2524,161 @@ log_buffer_success:
 		;
 	}
 #endif
+#ifdef CONFIG_ARM64
+	{
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (READ_ONCE(hashdist) || !irqs_disabled())
+			goto vfs_caches_pre_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto vfs_caches_pre_fail;
+
+		if (!fresh_bridge)
+			goto vfs_caches_pre_fail;
+
+		note10_vfs1_diag_bridge = fresh_bridge;
+
+		/* WHITE: exact VFS1 pre-state passed. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_vfs1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"mov x11, #-1\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto vfs_caches_target;
+
+vfs_caches_pre_fail:
+		/* YELLOW: exact VFS1 pre-state failed; target is not entered. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_vfs1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0xff00\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0xff00, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		__builtin_unreachable();
+
+vfs_caches_target:
+		;
+	}
+#endif
 	vfs_caches_init_early();
+#ifdef CONFIG_ARM64
+	{
+		unsigned long tpidr_el1;
+		void *fresh_bridge;
+
+		/* RED: vfs_caches_init_early() genuinely returned. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)note10_vfs1_diag_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x0000\n\t"
+				"movk x11, #0xffff, lsl #16\n\t"
+				"movk x11, #0x0000, lsl #32\n\t"
+				"movk x11, #0xffff, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+
+		if (READ_ONCE(hashdist) || !irqs_disabled())
+			goto vfs_caches_post_fail;
+
+		asm volatile("mrs %0, TPIDR_EL1" : "=r" (tpidr_el1));
+		if (tpidr_el1 != READ_ONCE(__per_cpu_offset[0]))
+			goto vfs_caches_post_fail;
+
+		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		if (!fresh_bridge)
+			goto vfs_caches_post_fail;
+
+		/* BLUE: VFS early caches returned with bounded continuity intact. */
+		{
+			register unsigned long bridge_reg asm("x9") =
+				(unsigned long)fresh_bridge;
+
+			asm volatile("mov x10, %0\n\t"
+				"movz x11, #0x00ff\n\t"
+				"movk x11, #0xff00, lsl #16\n\t"
+				"movk x11, #0x00ff, lsl #32\n\t"
+				"movk x11, #0xff00, lsl #48\n\t"
+				"movz x12, #0x0002, lsl #16\n\t"
+				"movk x12, #0xd000\n\t"
+				"add x12, x10, x12\n\t"
+				"1:\n\t"
+				"str x11, [x10], #8\n\t"
+				"cmp x10, x12\n\t"
+				"b.lo 1b\n\t"
+				"dsb sy\n\t"
+				"2:\n\t"
+				"wfe\n\t"
+				"b 2b\n\t"
+				:
+				: "r" (bridge_reg)
+				: "x0", "x1", "x8", "x10", "x11", "x12",
+				  "x13", "x14", "cc", "memory");
+		}
+		goto vfs_caches_success;
+
+vfs_caches_post_fail:
+		asm volatile("1:\n\t"
+			     "wfe\n\t"
+			     "b 1b\n\t"
+			     :
+			     :
+			     : "memory");
+		__builtin_unreachable();
+
+vfs_caches_success:
+		;
+	}
+#endif
 	sort_main_extable();
 	trap_init();
 	mm_core_init();
