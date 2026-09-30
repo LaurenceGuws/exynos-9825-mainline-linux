@@ -2747,7 +2747,7 @@ void __init mm_core_init_early(void)
 /*
  * Set up kernel memory allocators
  */
-static bool note10_mm3a_stop __initdata = true;
+static bool note10_mm3b_stop __initdata = true;
 
 void __init mm_core_init(void)
 {
@@ -2769,8 +2769,6 @@ void __init mm_core_init(void)
 	report_meminit();
 	kmsan_init_shadow();
 	stack_depot_early_init();
-	if (READ_ONCE(note10_mm3a_stop))
-		return;
 
 	/*
 	 * KHO memory setup must happen while memblock is still active, but
@@ -2779,6 +2777,9 @@ void __init mm_core_init(void)
 	kho_memory_init();
 
 	memblock_free_all();
+	if (READ_ONCE(note10_mm3b_stop))
+		return;
+
 	mem_init();
 	kmem_cache_init();
 	/*
