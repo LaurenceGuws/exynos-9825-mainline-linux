@@ -2528,8 +2528,10 @@ log_buffer_success:
 	{
 		unsigned long tpidr_el1;
 		void *fresh_bridge;
+		void *failure_bridge;
 
 		fresh_bridge = READ_ONCE(note10_paging_bridge);
+		failure_bridge = fresh_bridge ? fresh_bridge : note10_vfs1_diag_bridge;
 		if (READ_ONCE(hashdist) || !irqs_disabled())
 			goto vfs_caches_pre_fail;
 
@@ -2545,7 +2547,7 @@ log_buffer_success:
 		/* WHITE: exact VFS1 pre-state passed. */
 		{
 			register unsigned long bridge_reg asm("x9") =
-				(unsigned long)note10_vfs1_diag_bridge;
+				(unsigned long)fresh_bridge;
 
 			asm volatile("mov x10, %0\n\t"
 				"mov x11, #-1\n\t"
@@ -2568,7 +2570,7 @@ vfs_caches_pre_fail:
 		/* YELLOW: exact VFS1 pre-state failed; target is not entered. */
 		{
 			register unsigned long bridge_reg asm("x9") =
-				(unsigned long)note10_vfs1_diag_bridge;
+				(unsigned long)failure_bridge;
 
 			asm volatile("mov x10, %0\n\t"
 				"movz x11, #0xff00\n\t"
