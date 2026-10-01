@@ -1585,6 +1585,8 @@ static void __free_pages_ok(struct page *page, unsigned int order,
 		free_one_page(zone, page, pfn, order, fpi_flags);
 }
 
+static bool note10_mm3b6_page_metadata_stop __meminitdata = true;
+
 void __meminit __free_pages_core(struct page *page, unsigned int order,
 		enum meminit_context context)
 {
@@ -1614,6 +1616,8 @@ void __meminit __free_pages_core(struct page *page, unsigned int order,
 			__ClearPageReserved(p);
 			set_page_count(p, 0);
 		}
+		if (READ_ONCE(note10_mm3b6_page_metadata_stop))
+			return;
 
 		/* memblock adjusts totalram_pages() manually. */
 		atomic_long_add(nr_pages, &page_zone(page)->managed_pages);
