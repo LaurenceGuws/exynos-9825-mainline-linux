@@ -2747,7 +2747,7 @@ void __init mm_core_init_early(void)
 /*
  * Set up kernel memory allocators
  */
-static bool note10_mm3b3_outer_stop __initdata = true;
+static bool note10_mm3b4_outer_stop __initdata = true;
 
 void __init mm_core_init(void)
 {
@@ -2777,7 +2777,7 @@ void __init mm_core_init(void)
 	kho_memory_init();
 
 	memblock_free_all();
-	if (READ_ONCE(note10_mm3b3_outer_stop))
+	if (READ_ONCE(note10_mm3b4_outer_stop))
 		return;
 
 	mem_init();
