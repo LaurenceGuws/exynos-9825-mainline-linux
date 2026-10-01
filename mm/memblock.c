@@ -2257,6 +2257,8 @@ static void __init __free_pages_memory(unsigned long start, unsigned long end)
 	}
 }
 
+static bool note10_mm3b5_free_core_bypass __initdata = true;
+
 static unsigned long __init __free_memory_core(phys_addr_t start,
 				 phys_addr_t end)
 {
@@ -2268,6 +2270,8 @@ static unsigned long __init __free_memory_core(phys_addr_t start,
 
 	if (start_pfn >= end_pfn)
 		return 0;
+	if (READ_ONCE(note10_mm3b5_free_core_bypass))
+		return end_pfn - start_pfn;
 
 	__free_pages_memory(start_pfn, end_pfn);
 
@@ -2348,8 +2352,6 @@ repeat:
 	}
 }
 
-static bool note10_mm3b4_free_low_stop __initdata = true;
-
 static unsigned long __init free_low_memory_core_early(void)
 {
 	unsigned long count = 0;
@@ -2358,8 +2360,6 @@ static unsigned long __init free_low_memory_core_early(void)
 
 	memblock_clear_hotplug(0, -1);
 	memmap_init_reserved_pages();
-	if (READ_ONCE(note10_mm3b4_free_low_stop))
-		return count;
 
 	/*
 	 * We need to use NUMA_NO_NODE instead of NODE_DATA(0)->node_id
@@ -2374,7 +2374,7 @@ static unsigned long __init free_low_memory_core_early(void)
 }
 
 static int reset_managed_pages_done __initdata;
-static bool note10_mm3b4_memblock_stop __initdata = true;
+static bool note10_mm3b5_memblock_stop __initdata = true;
 
 static void __init reset_node_managed_pages(pg_data_t *pgdat)
 {
@@ -2409,8 +2409,12 @@ void __init memblock_free_all(void)
 
 	memblock_clear_kho_scratch_only();
 	pages = free_low_memory_core_early();
-	if (READ_ONCE(note10_mm3b4_memblock_stop))
+	if (READ_ONCE(note10_mm3b5_memblock_stop)) {
+		if (!pages)
+			for (;;)
+				cpu_relax();
 		return;
+	}
 
 	totalram_pages_add(pages);
 }
