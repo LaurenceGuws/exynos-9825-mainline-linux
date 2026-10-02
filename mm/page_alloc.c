@@ -1575,17 +1575,22 @@ static void free_one_page(struct zone *zone, struct page *page,
 	__count_vm_events(PGFREE, 1 << order);
 }
 
+static bool note10_mm3b8a_entry_stop = true;
+
 static void __free_pages_ok(struct page *page, unsigned int order,
 			    fpi_t fpi_flags)
 {
-	unsigned long pfn = page_to_pfn(page);
-	struct zone *zone = page_zone(page);
+	unsigned long pfn;
+	struct zone *zone;
 
+	if (READ_ONCE(note10_mm3b8a_entry_stop))
+		return;
+
+	pfn = page_to_pfn(page);
+	zone = page_zone(page);
 	if (__free_pages_prepare(page, order, fpi_flags))
 		free_one_page(zone, page, pfn, order, fpi_flags);
 }
-
-static bool note10_mm3b7_managed_pages_stop __meminitdata = true;
 
 void __meminit __free_pages_core(struct page *page, unsigned int order,
 		enum meminit_context context)
@@ -1619,8 +1624,6 @@ void __meminit __free_pages_core(struct page *page, unsigned int order,
 
 		/* memblock adjusts totalram_pages() manually. */
 		atomic_long_add(nr_pages, &page_zone(page)->managed_pages);
-		if (READ_ONCE(note10_mm3b7_managed_pages_stop))
-			return;
 	}
 
 	if (page_contains_unaccepted(page, order)) {

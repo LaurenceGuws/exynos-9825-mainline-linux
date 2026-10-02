@@ -2370,7 +2370,7 @@ static unsigned long __init free_low_memory_core_early(void)
 }
 
 static int reset_managed_pages_done __initdata;
-static bool note10_mm3b7_memblock_stop __initdata = true;
+static bool note10_mm3b8a_memblock_stop __initdata = true;
 
 static void __init reset_node_managed_pages(pg_data_t *pgdat)
 {
@@ -2405,7 +2405,7 @@ void __init memblock_free_all(void)
 
 	memblock_clear_kho_scratch_only();
 	pages = free_low_memory_core_early();
-	if (READ_ONCE(note10_mm3b7_memblock_stop)) {
+	if (READ_ONCE(note10_mm3b8a_memblock_stop)) {
 		if (!pages)
 			for (;;)
 				cpu_relax();
